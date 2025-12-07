@@ -247,7 +247,70 @@ def run_all_experiments(verbose=True):
     for name, exp_config in all_experiments.items():
         results[name] = run_single_experiment(name, exp_config, verbose)
     
+    # Save summary
+    save_summary(results)
+    
     return results
+
+
+def save_summary(results):
+    """Save a summary of all experiment results."""
+    summary = {
+        'timestamp': datetime.now().isoformat(),
+        'experiments': {}
+    }
+    
+    for name, result in results.items():
+        summary['experiments'][name] = {
+            'config': result['config'],
+            'num_runs': result['num_runs'],
+            'accuracy_mean': result['stats']['accuracy']['mean'],
+            'accuracy_std': result['stats']['accuracy']['std'],
+            'time_mean': result['stats']['time']['mean'],
+            'time_std': result['stats']['time']['std'],
+        }
+    
+    # Save summary
+    os.makedirs('experiment_logs', exist_ok=True)
+    summary_path = f"experiment_logs/summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    with open(summary_path, 'w') as f:
+        json.dump(summary, f, indent=2)
+    
+    print(f"\nSummary saved to: {summary_path}")
+    
+    # Print comparison table
+    print_comparison_table(summary)
+
+
+def print_comparison_table(summary):
+    """Print a formatted comparison table of all experiments."""
+    print(f"\n{'='*90}")
+    print("EXPERIMENT COMPARISON")
+    print(f"{'='*90}")
+    print(f"{'Experiment':<35} {'Accuracy':>15} {'Time (s)':>15} {'Δ Acc':>10} {'Δ Time':>10}")
+    print(f"{'-'*90}")
+    
+    # Get baseline for comparison
+    baseline = summary['experiments'].get('baseline', None)
+    baseline_acc = baseline['accuracy_mean'] if baseline else None
+    baseline_time = baseline['time_mean'] if baseline else None
+    
+    for name, exp in summary['experiments'].items():
+        acc_str = f"{exp['accuracy_mean']:.4f}±{exp['accuracy_std']:.4f}"
+        time_str = f"{exp['time_mean']:.3f}±{exp['time_std']:.3f}"
+        
+        if baseline_acc and name != 'baseline':
+            delta_acc = exp['accuracy_mean'] - baseline_acc
+            delta_time = exp['time_mean'] - baseline_time
+            delta_acc_str = f"{delta_acc:+.4f}"
+            delta_time_str = f"{delta_time:+.3f}"
+        else:
+            delta_acc_str = "---"
+            delta_time_str = "---"
+        
+        print(f"{name:<35} {acc_str:>15} {time_str:>15} {delta_acc_str:>10} {delta_time_str:>10}")
+    
+    print(f"{'='*90}\n")
 
 #############################################
 #              Main Entry Point
