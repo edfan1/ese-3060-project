@@ -146,38 +146,17 @@ def get_all_experiments():
         'description': 'Q4: Whitening trainable from epoch 3 (0.1x LR)',
         'phase': 'Q4',
     }
-    
-    return experiments
 
-
-def get_combination_experiments():
-    """Define combination experiments to test promising combinations, call after phases"""
-    experiments = {}
-    
-    # Example combinations (modify based on your Phase 1-4 results!)
-    # These are placeholders - you should update based on what works
-    
-    experiments['combo_1'] = {
+    experiments['combo_eps_width'] = {
         'config': {
             'whiten': {
-                'kernel_size': 3,      # If Q1 shows 3x3 is better
-                'eps': 1e-3,           # If Q3 shows higher eps is better
+                'eps': 1e-3,           # Showed -0.077s time (not sig, but direction is good)
+                'width_multiplier': 2,  # Keep default (width_1 hurt accuracy)
+                'kernel_size': 2,       # Keep default (all others hurt)
             }
         },
-        'num_runs': RUNS_ABLATION,
-        'description': 'Combination: 3x3 kernel + eps=1e-3',
-        'phase': 'combo',
-    }
-    
-    experiments['combo_2'] = {
-        'config': {
-            'whiten': {
-                'kernel_size': 3,
-                'width_multiplier': 1,  # If Q2 shows width=1 is sufficient
-            }
-        },
-        'num_runs': RUNS_ABLATION,
-        'description': 'Combination: 3x3 kernel + width=1',
+        'num_runs': 50,
+        'description': 'Combo: eps=1e-3 with defaults (test if eps effect is real)',
         'phase': 'combo',
     }
     
