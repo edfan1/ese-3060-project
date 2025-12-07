@@ -1,3 +1,5 @@
+### CLAUDE GENERATED RUN RECOMMENDATION
+
 # Whitening Layer Experiment Framework
 
 This framework allows you to systematically test modifications to the whitening layer
