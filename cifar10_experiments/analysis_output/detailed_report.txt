@@ -1,6 +1,6 @@
 ================================================================================
 DETAILED EXPERIMENT ANALYSIS REPORT
-Generated: 2025-12-07T20:41:19.778654
+Generated: 2025-12-07T22:09:06.234132
 ================================================================================
 
 
@@ -399,3 +399,32 @@ Time Statistics:
   Mean:   4.192 s
   Std:    0.864 s
   Range:  [3.966, 12.739] s
+
+============================================================
+EXPERIMENT: combo_eps_width
+============================================================
+
+Configuration:
+  whiten: {'eps': 0.001, 'width_multiplier': 2, 'kernel_size': 2}
+
+Accuracy Statistics (n=50):
+  Mean:   0.9402
+  Std:    0.0012
+  95% CI: ± 0.0003
+  Range:  [0.9365, 0.9427]
+  Median: 0.9402
+
+Time Statistics:
+  Mean:   4.265 s
+  Std:    1.137 s
+  Range:  [3.984, 12.139] s
+
+Comparison with Baseline:
+  Δ Accuracy:  -0.0001
+  Δ Time:      +0.073 s
+
+  Accuracy t-test:
+    t-statistic: -0.2831
+    p-value:     0.777647
+    Cohen's d:   -0.0486
+    Significant (p<0.05): False
