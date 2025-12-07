@@ -43,7 +43,9 @@ def load_all_results(log_dir='experiment_logs'):
     
     for filepath in result_files:
         try:
-            data = torch.load(filepath)
+            # weights_only=False is needed because our results contain dicts, lists, strings, etc.
+            # This is safe since we're loading our own experiment results
+            data = torch.load(filepath, weights_only=False)
             exp_name = data.get('experiment_name', os.path.basename(os.path.dirname(filepath)))
             results[exp_name] = data
         except Exception as e:
@@ -301,7 +303,7 @@ def plot_training_curves(results, output_path=None):
     
     ax.set_xlabel('Epoch')
     ax.set_ylabel('Validation Accuracy')
-    ax.set_title('Training Curves (mean +- std)')
+    ax.set_title('Training Curves (mean ± std)')
     ax.legend()
     ax.grid(True, alpha=0.3)
     
@@ -327,7 +329,7 @@ def generate_comparison_table(results, baseline_name='baseline'):
     print(f"\n{'='*130}")
     print("EXPERIMENT COMPARISON TABLE")
     print(f"{'='*130}")
-    print(f"{'Experiment':<30} {'Accuracy':<20} {'Time (s)':<18} {'Delta Acc':<10} {'Acc p':<10} {'Delta Time':<10} {'Time p':<10} {'Sig?':<6}")
+    print(f"{'Experiment':<30} {'Accuracy':<20} {'Time (s)':<18} {'Δ Acc':<10} {'Acc p':<10} {'Δ Time':<10} {'Time p':<10} {'Sig?':<6}")
     print(f"{'-'*130}")
     
     for name, result in sorted(results.items()):
@@ -336,8 +338,8 @@ def generate_comparison_table(results, baseline_name='baseline'):
         time_mean = np.mean(result['all_times'])
         time_std = np.std(result['all_times'])
         
-        acc_str = f"{acc_mean:.4f} +- {acc_std:.4f}"
-        time_str = f"{time_mean:.3f} +- {time_std:.3f}"
+        acc_str = f"{acc_mean:.4f} ± {acc_std:.4f}"
+        time_str = f"{time_mean:.3f} ± {time_std:.3f}"
         
         if baseline and name != baseline_name:
             comparison = compare_experiments(baseline, result)
@@ -402,7 +404,7 @@ def generate_detailed_report(results, baseline_name='baseline', output_path=None
         lines.append(f"\nAccuracy Statistics (n={stats_data['accuracy']['n']}):")
         lines.append(f"  Mean:   {stats_data['accuracy']['mean']:.4f}")
         lines.append(f"  Std:    {stats_data['accuracy']['std']:.4f}")
-        lines.append(f"  95% CI: +- {stats_data['accuracy']['ci_95']:.4f}")
+        lines.append(f"  95% CI: ± {stats_data['accuracy']['ci_95']:.4f}")
         lines.append(f"  Range:  [{stats_data['accuracy']['min']:.4f}, {stats_data['accuracy']['max']:.4f}]")
         lines.append(f"  Median: {stats_data['accuracy']['median']:.4f}")
         
@@ -415,8 +417,8 @@ def generate_detailed_report(results, baseline_name='baseline', output_path=None
         if baseline and name != baseline_name:
             comparison = compare_experiments(baseline, result)
             lines.append(f"\nComparison with Baseline:")
-            lines.append(f"  Delta Accuracy:  {comparison['delta_accuracy']:+.4f}")
-            lines.append(f"  Delta Time:      {comparison['delta_time']:+.3f} s")
+            lines.append(f"  Δ Accuracy:  {comparison['delta_accuracy']:+.4f}")
+            lines.append(f"  Δ Time:      {comparison['delta_time']:+.3f} s")
             lines.append(f"\n  Accuracy t-test:")
             lines.append(f"    t-statistic: {comparison['accuracy_test']['t_statistic']:.4f}")
             lines.append(f"    p-value:     {comparison['accuracy_test']['p_value']:.6f}")

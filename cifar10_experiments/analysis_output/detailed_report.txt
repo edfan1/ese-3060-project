@@ -1,0 +1,401 @@
+================================================================================
+DETAILED EXPERIMENT ANALYSIS REPORT
+Generated: 2025-12-07T20:41:19.778654
+================================================================================
+
+
+============================================================
+EXPERIMENT: Q1_kernel_1x1
+============================================================
+
+Configuration:
+  whiten: {'kernel_size': 1}
+
+Accuracy Statistics (n=50):
+  Mean:   0.9242
+  Std:    0.0016
+  95% CI: ± 0.0004
+  Range:  [0.9205, 0.9290]
+  Median: 0.9240
+
+Time Statistics:
+  Mean:   4.784 s
+  Std:    0.950 s
+  Range:  [4.542, 11.362] s
+
+Comparison with Baseline:
+  Δ Accuracy:  -0.0161
+  Δ Time:      +0.592 s
+
+  Accuracy t-test:
+    t-statistic: -60.8553
+    p-value:     0.000000
+    Cohen's d:   -10.9049
+    Significant (p<0.05): True
+
+============================================================
+EXPERIMENT: Q1_kernel_3x3
+============================================================
+
+Configuration:
+  whiten: {'kernel_size': 3}
+
+Accuracy Statistics (n=50):
+  Mean:   0.9392
+  Std:    0.0011
+  95% CI: ± 0.0003
+  Range:  [0.9368, 0.9421]
+  Median: 0.9391
+
+Time Statistics:
+  Mean:   5.299 s
+  Std:    1.034 s
+  Range:  [5.068, 12.464] s
+
+Comparison with Baseline:
+  Δ Accuracy:  -0.0011
+  Δ Time:      +1.108 s
+
+  Accuracy t-test:
+    t-statistic: -5.2078
+    p-value:     0.000001
+    Cohen's d:   -0.8799
+    Significant (p<0.05): True
+
+============================================================
+EXPERIMENT: Q1_kernel_4x4
+============================================================
+
+Configuration:
+  whiten: {'kernel_size': 4}
+
+Accuracy Statistics (n=50):
+  Mean:   0.9373
+  Std:    0.0017
+  95% CI: ± 0.0005
+  Range:  [0.9338, 0.9407]
+  Median: 0.9376
+
+Time Statistics:
+  Mean:   5.109 s
+  Std:    0.717 s
+  Range:  [4.925, 10.072] s
+
+Comparison with Baseline:
+  Δ Accuracy:  -0.0029
+  Δ Time:      +0.917 s
+
+  Accuracy t-test:
+    t-statistic: -10.9548
+    p-value:     0.000000
+    Cohen's d:   -1.9690
+    Significant (p<0.05): True
+
+============================================================
+EXPERIMENT: Q2_width_1
+============================================================
+
+Configuration:
+  whiten: {'width_multiplier': 1}
+
+Accuracy Statistics (n=50):
+  Mean:   0.9366
+  Std:    0.0012
+  95% CI: ± 0.0003
+  Range:  [0.9341, 0.9395]
+  Median: 0.9363
+
+Time Statistics:
+  Mean:   4.251 s
+  Std:    1.358 s
+  Range:  [3.955, 13.655] s
+
+Comparison with Baseline:
+  Δ Accuracy:  -0.0037
+  Δ Time:      +0.059 s
+
+  Accuracy t-test:
+    t-statistic: -17.0509
+    p-value:     0.000000
+    Cohen's d:   -2.9142
+    Significant (p<0.05): True
+
+============================================================
+EXPERIMENT: Q2_width_3
+============================================================
+
+Configuration:
+  whiten: {'width_multiplier': 3}
+
+Accuracy Statistics (n=50):
+  Mean:   0.9403
+  Std:    0.0012
+  95% CI: ± 0.0003
+  Range:  [0.9377, 0.9433]
+  Median: 0.9403
+
+Time Statistics:
+  Mean:   4.754 s
+  Std:    0.259 s
+  Range:  [4.635, 6.545] s
+
+Comparison with Baseline:
+  Δ Accuracy:  +0.0001
+  Δ Time:      +0.563 s
+
+  Accuracy t-test:
+    t-statistic: 0.3250
+    p-value:     0.745818
+    Cohen's d:   0.0556
+    Significant (p<0.05): False
+
+============================================================
+EXPERIMENT: Q3_eps_1e-3
+============================================================
+
+Configuration:
+  whiten: {'eps': 0.001}
+
+Accuracy Statistics (n=50):
+  Mean:   0.9401
+  Std:    0.0016
+  95% CI: ± 0.0004
+  Range:  [0.9360, 0.9430]
+  Median: 0.9401
+
+Time Statistics:
+  Mean:   4.115 s
+  Std:    0.035 s
+  Range:  [4.042, 4.142] s
+
+Comparison with Baseline:
+  Δ Accuracy:  -0.0002
+  Δ Time:      -0.077 s
+
+  Accuracy t-test:
+    t-statistic: -0.6097
+    p-value:     0.543737
+    Cohen's d:   -0.1088
+    Significant (p<0.05): False
+
+============================================================
+EXPERIMENT: Q3_eps_1e-4
+============================================================
+
+Configuration:
+  whiten: {'eps': 0.0001}
+
+Accuracy Statistics (n=50):
+  Mean:   0.9403
+  Std:    0.0011
+  95% CI: ± 0.0003
+  Range:  [0.9374, 0.9422]
+  Median: 0.9405
+
+Time Statistics:
+  Mean:   4.125 s
+  Std:    0.029 s
+  Range:  [4.039, 4.191] s
+
+Comparison with Baseline:
+  Δ Accuracy:  +0.0001
+  Δ Time:      -0.066 s
+
+  Accuracy t-test:
+    t-statistic: 0.5320
+    p-value:     0.595741
+    Cohen's d:   0.0894
+    Significant (p<0.05): False
+
+============================================================
+EXPERIMENT: Q3_eps_5e-3
+============================================================
+
+Configuration:
+  whiten: {'eps': 0.005}
+
+Accuracy Statistics (n=50):
+  Mean:   0.9400
+  Std:    0.0013
+  95% CI: ± 0.0003
+  Range:  [0.9372, 0.9426]
+  Median: 0.9401
+
+Time Statistics:
+  Mean:   4.118 s
+  Std:    0.030 s
+  Range:  [4.039, 4.141] s
+
+Comparison with Baseline:
+  Δ Accuracy:  -0.0002
+  Δ Time:      -0.074 s
+
+  Accuracy t-test:
+    t-statistic: -0.8893
+    p-value:     0.375952
+    Cohen's d:   -0.1529
+    Significant (p<0.05): False
+
+============================================================
+EXPERIMENT: Q3_eps_5e-5
+============================================================
+
+Configuration:
+  whiten: {'eps': 5e-05}
+
+Accuracy Statistics (n=50):
+  Mean:   0.9404
+  Std:    0.0011
+  95% CI: ± 0.0003
+  Range:  [0.9366, 0.9425]
+  Median: 0.9405
+
+Time Statistics:
+  Mean:   4.280 s
+  Std:    1.173 s
+  Range:  [4.032, 12.406] s
+
+Comparison with Baseline:
+  Δ Accuracy:  +0.0001
+  Δ Time:      +0.089 s
+
+  Accuracy t-test:
+    t-statistic: 0.7183
+    p-value:     0.474069
+    Cohen's d:   0.1213
+    Significant (p<0.05): False
+
+============================================================
+EXPERIMENT: Q4_trainable_epoch0
+============================================================
+
+Configuration:
+  whiten: {'trainable_after_epoch': 0, 'trainable_lr_mult': 0.01}
+
+Accuracy Statistics (n=50):
+  Mean:   0.9226
+  Std:    0.0087
+  95% CI: ± 0.0024
+  Range:  [0.8855, 0.9324]
+  Median: 0.9239
+
+Time Statistics:
+  Mean:   4.491 s
+  Std:    1.163 s
+  Range:  [4.187, 12.545] s
+
+Comparison with Baseline:
+  Δ Accuracy:  -0.0177
+  Δ Time:      +0.300 s
+
+  Accuracy t-test:
+    t-statistic: -14.3483
+    p-value:     0.000000
+    Cohen's d:   -2.8536
+    Significant (p<0.05): True
+
+============================================================
+EXPERIMENT: Q4_trainable_epoch3
+============================================================
+
+Configuration:
+  whiten: {'trainable_after_epoch': 3, 'trainable_lr_mult': 0.01}
+
+Accuracy Statistics (n=50):
+  Mean:   0.9326
+  Std:    0.0035
+  95% CI: ± 0.0010
+  Range:  [0.9222, 0.9381]
+  Median: 0.9332
+
+Time Statistics:
+  Mean:   4.337 s
+  Std:    0.032 s
+  Range:  [4.261, 4.360] s
+
+Comparison with Baseline:
+  Δ Accuracy:  -0.0076
+  Δ Time:      +0.146 s
+
+  Accuracy t-test:
+    t-statistic: -14.7593
+    p-value:     0.000000
+    Cohen's d:   -2.8619
+    Significant (p<0.05): True
+
+============================================================
+EXPERIMENT: Q4_trainable_epoch3_lr0.1
+============================================================
+
+Configuration:
+  whiten: {'trainable_after_epoch': 3, 'trainable_lr_mult': 0.1}
+
+Accuracy Statistics (n=50):
+  Mean:   0.9309
+  Std:    0.0059
+  95% CI: ± 0.0016
+  Range:  [0.8987, 0.9368]
+  Median: 0.9321
+
+Time Statistics:
+  Mean:   4.335 s
+  Std:    0.033 s
+  Range:  [4.257, 4.361] s
+
+Comparison with Baseline:
+  Δ Accuracy:  -0.0094
+  Δ Time:      +0.144 s
+
+  Accuracy t-test:
+    t-statistic: -11.0292
+    p-value:     0.000000
+    Cohen's d:   -2.1800
+    Significant (p<0.05): True
+
+============================================================
+EXPERIMENT: Q4_trainable_epoch5
+============================================================
+
+Configuration:
+  whiten: {'trainable_after_epoch': 5, 'trainable_lr_mult': 0.01}
+
+Accuracy Statistics (n=50):
+  Mean:   0.9365
+  Std:    0.0013
+  95% CI: ± 0.0004
+  Range:  [0.9337, 0.9395]
+  Median: 0.9363
+
+Time Statistics:
+  Mean:   4.277 s
+  Std:    0.033 s
+  Range:  [4.192, 4.365] s
+
+Comparison with Baseline:
+  Δ Accuracy:  -0.0038
+  Δ Time:      +0.086 s
+
+  Accuracy t-test:
+    t-statistic: -16.6712
+    p-value:     0.000000
+    Cohen's d:   -2.8831
+    Significant (p<0.05): True
+
+============================================================
+EXPERIMENT: baseline
+============================================================
+
+Configuration:
+  (baseline - no modifications)
+
+Accuracy Statistics (n=100):
+  Mean:   0.9402
+  Std:    0.0013
+  95% CI: ± 0.0003
+  Range:  [0.9374, 0.9446]
+  Median: 0.9401
+
+Time Statistics:
+  Mean:   4.192 s
+  Std:    0.864 s
+  Range:  [3.966, 12.739] s
