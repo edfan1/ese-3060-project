@@ -20,8 +20,8 @@ modified to achieve faster convergence to 94% accuracy.**
 
 | File | Description |
 |------|-------------|
-| `airbench94_configurable.py` | Modified airbench94 with configurable whitening parameters |
-| `run_experiments.py` | Defines and runs all experiments |
+| `airbench_configurable.py` | Modified airbench94 with configurable whitening parameters |
+| `run_airbench.py` | Defines and runs all experiments |
 | `analyze_results.py` | Analyzes results, computes statistics, generates plots |
 
 ## Quick Start
@@ -35,24 +35,24 @@ pip install torch torchvision matplotlib scipy numpy
 ### 2. List all experiments
 
 ```bash
-python run_experiments.py --list
+python run_airbench.py --list
 ```
 
 ### 3. Run experiments
 
 ```bash
 # Run all experiments (takes ~2 hours on A100)
-python run_experiments.py
+python run_airbench.py
 
 # Or run by phase:
-python run_experiments.py --phase baseline   # ~7 min
-python run_experiments.py --phase Q1         # ~7 min
-python run_experiments.py --phase Q2         # ~3 min
-python run_experiments.py --phase Q3         # ~7 min
-python run_experiments.py --phase Q4         # ~7 min
+python run_airbench.py --phase baseline   # ~7 min
+python run_airbench.py --phase Q1         # ~7 min
+python run_airbench.py --phase Q2         # ~3 min
+python run_airbench.py --phase Q3         # ~7 min
+python run_airbench.py --phase Q4         # ~7 min
 
 # Or run a specific experiment:
-python run_experiments.py --experiment Q1_kernel_3x3
+python run_airbench.py --experiment Q1_kernel_3x3
 ```
 
 ### 4. Analyze results
@@ -72,19 +72,19 @@ You can also run the configurable airbench directly:
 
 ```bash
 # Baseline (default settings)
-python airbench94_configurable.py --num_runs 50 --experiment_name baseline
+python airbench_configurable.py --num_runs 50 --experiment_name baseline
 
 # Test 3×3 kernel
-python airbench94_configurable.py --num_runs 50 --whiten_kernel_size 3 --experiment_name Q1_3x3
+python airbench_configurable.py --num_runs 50 --whiten_kernel_size 3 --experiment_name Q1_3x3
 
 # Test width multiplier = 1
-python airbench94_configurable.py --num_runs 50 --whiten_width_mult 1 --experiment_name Q2_width1
+python airbench_configurable.py --num_runs 50 --whiten_width_mult 1 --experiment_name Q2_width1
 
 # Test epsilon = 1e-3
-python airbench94_configurable.py --num_runs 50 --whiten_eps 1e-3 --experiment_name Q3_eps1e-3
+python airbench_configurable.py --num_runs 50 --whiten_eps 1e-3 --experiment_name Q3_eps1e-3
 
 # Test trainable whitening from epoch 3
-python airbench94_configurable.py --num_runs 50 --whiten_trainable_after 3 --experiment_name Q4_train3
+python airbench_configurable.py --num_runs 50 --whiten_trainable_after 3 --experiment_name Q4_train3
 ```
 
 ## Experiment Design
@@ -129,7 +129,7 @@ analysis_output/
 
 ### Adding new experiments
 
-Edit `run_experiments.py` and add to `get_all_experiments()`:
+Edit `run_airbench.py` and add to `get_all_experiments()`:
 
 ```python
 experiments['Q1_kernel_5x5'] = {
@@ -142,7 +142,7 @@ experiments['Q1_kernel_5x5'] = {
 
 ### Adjusting number of runs
 
-Edit the constants at the top of `run_experiments.py`:
+Edit the constants at the top of `run_airbench.py`:
 
 ```python
 RUNS_BASELINE = 100      # Baseline runs
