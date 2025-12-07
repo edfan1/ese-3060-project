@@ -51,6 +51,11 @@ def get_default_hyp():
             'scaling_factor': 1/9,
             'tta_level': 2,
         },
+        'alpha_schedule': {
+            'coef' : 0.95,
+            'coef_exp' : 5,
+            'step_exp' : 3,
+        },
         # Whitening layer hyperparameters
         'whiten': {
             'kernel_size': 2,           # Q1: spatial extent of whitening patches
@@ -397,7 +402,7 @@ def train_one_run(run, verbose=True):
             return 1.0 * (1 - frac) + 0.07 * frac
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, get_lr)
 
-    alpha_schedule = 0.95**5 * (torch.arange(total_train_steps+1) / total_train_steps)**3
+    alpha_schedule = hyp['alpha_schedule']['coef']**hyp['alpha_schedule']['coef_exp'] * (torch.arange(total_train_steps+1) / total_train_steps)**hyp['alpha_schedule']['step_exp']
     lookahead_state = LookaheadState(model)
 
     starter = torch.cuda.Event(enable_timing=True)

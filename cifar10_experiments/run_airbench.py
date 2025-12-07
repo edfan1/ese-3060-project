@@ -160,6 +160,34 @@ def get_all_experiments():
         'phase': 'combo',
     }
     
+    experiments['J_alpha_exp2'] = {
+        'config': {'lookahead': {'step_exp': 2}},
+        'num_runs': RUNS_ABLATION,
+        'description': 'Lookahead alpha schedule with exponent=2',
+        'phase': 'J',
+    }
+
+    experiments['J_alpha_exp4'] = {
+        'config': {'lookahead': {'step_exp': 4}},
+        'num_runs': RUNS_ABLATION,
+        'description': 'Lookahead alpha schedule with exponent=4',
+        'phase': 'J',
+    }
+
+    experiments['J_alpha_exp5'] = {
+        'config': {'lookahead': {'step_exp': 5}},
+        'num_runs': RUNS_ABLATION,
+        'description': 'Lookahead alpha schedule with exponent=5',
+        'phase': 'J',
+    }
+
+    experiments['J_alpha_base090'] = {
+        'config': {'lookahead': {'coef': 0.90}},
+        'num_runs': RUNS_ABLATION,
+        'description': 'Lookahead alpha schedule with base=0.90^5',
+        'phase': 'J',
+    }
+
     return experiments
 
 
@@ -302,7 +330,7 @@ if __name__ == "__main__":
     )
     
     parser.add_argument('--phase', type=str, default=None,
-                        choices=['baseline', 'Q1', 'Q2', 'Q3', 'Q4', 'combo'],
+                        choices=['baseline', 'Q1', 'Q2', 'Q3', 'Q4', 'combo', 'J'],
                         help='Run only experiments in this phase')
     parser.add_argument('--experiment', type=str, default=None,
                         help='Run a specific experiment by name')
