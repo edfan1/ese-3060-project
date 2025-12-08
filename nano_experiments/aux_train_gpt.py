@@ -15,7 +15,6 @@ import glob
 import time
 import argparse
 from dataclasses import dataclass, field
-from typing import List, Optional, Dict
 
 import numpy as np
 import torch
@@ -24,6 +23,8 @@ import torch.nn.functional as F
 import torch.distributed as dist
 import torch._inductor.config as config
 from torch.nn.parallel import DistributedDataParallel as DDP
+
+from typing import List, Optional, Dict
 
 # -----------------------------------------------------------------------------
 # Muon optimizer
@@ -199,7 +200,7 @@ class Block(nn.Module):
         return x
 
 # -----------------------------------------------------------------------------
-# Auxiliary Head for Deep Supervision
+# ADD: Auxiliary Head for Deep Supervision
 # -----------------------------------------------------------------------------
 
 class AuxiliaryHead(nn.Module):
@@ -208,8 +209,8 @@ class AuxiliaryHead(nn.Module):
     
     Design choices:
     - Single linear layer (no bias) to minimize overhead
-    - Zero initialization to start with no auxiliary contribution
-    - Optional: Can share weights with main head (controlled by config)
+    - Zero initialization to start with no aux contribution
+    - Tuneable feat: Can share weights with main head (controlled by config)
     """
     def __init__(self, n_embd, vocab_size, zero_init=True):
         super().__init__()
@@ -220,7 +221,7 @@ class AuxiliaryHead(nn.Module):
             self.head.weight.data.zero_()
     
     def forward(self, x):
-        # Apply RMS norm before projection (same as main head)
+        # RMS norm before projection (same as main head)
         x = F.rms_norm(x, (x.size(-1),))
         return self.head(x)
 
@@ -454,8 +455,9 @@ class DistributedDataLoader:
 @dataclass
 class Hyperparameters:
     # data hyperparams
-    input_bin : str = 'data/fineweb10B/fineweb_train_*.bin' # input .bin to train on
-    input_val_bin : str = 'data/fineweb10B/fineweb_val_*.bin' # input .bin to eval validation loss on
+    # use parent dir so that we can leave cached_finweb10B in main dir
+    input_bin : str = '../data/fineweb10B/fineweb_train_*.bin' # input .bin to train on
+    input_val_bin : str = '../data/fineweb10B/fineweb_val_*.bin' # input .bin to eval validation loss on
     # optimization hyperparams
     batch_size : int = 8*64 # batch size, in sequences, across all devices
     device_batch_size : int = 64 # batch size, in sequences, per device
