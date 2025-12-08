@@ -28,6 +28,8 @@ RUNS_BASELINE = 100      # More runs for baseline to establish reliable referenc
 RUNS_ABLATION = 50       # Fewer runs for ablations during exploration
 RUNS_FINAL = 100         # More runs for final best configuration
 
+seeds = [42 + i for i in range(100)] # Can be modified
+
 def get_all_experiments():
     """
     Define all experiments to run.
@@ -207,6 +209,7 @@ def run_single_experiment(name, exp_config, verbose=True):
         num_runs=exp_config['num_runs'],
         experiment_name=name,
         verbose=verbose,
+        seeds=seeds,
     )
     
     return results

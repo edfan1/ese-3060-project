@@ -15,6 +15,7 @@ import json
 import argparse
 from math import ceil
 from datetime import datetime
+import subprocess
 
 import torch
 from torch import nn
@@ -23,6 +24,34 @@ import torchvision
 import torchvision.transforms as T
 
 torch.backends.cudnn.benchmark = True
+
+def get_git_info():
+    """Get current git commit hash and status."""
+    try:
+        commit_hash = subprocess.check_output(
+            ['git', 'rev-parse', 'HEAD'], 
+            stderr=subprocess.DEVNULL
+        ).decode('ascii').strip()
+        
+        # Check for uncommitted changes
+        try:
+            subprocess.check_output(
+                ['git', 'diff-index', '--quiet', 'HEAD', '--'],
+                stderr=subprocess.DEVNULL
+            )
+            dirty = False
+        except subprocess.CalledProcessError:
+            dirty = True
+        
+        return {
+            'commit_hash': commit_hash,
+            'dirty': dirty,  # True if uncommitted changes exist
+        }
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return {
+            'commit_hash': 'unknown',
+            'dirty': False,
+        }
 
 # Default hyperparameters (can be overridden)
 def get_default_hyp():
@@ -357,13 +386,13 @@ def evaluate(model, loader, tta_level=0):
 #                Training                  #
 ############################################
 
-def train_one_run(run, verbose=True):
-    """
-    Train a single run and return detailed results.
+def train_one_run(run, seed=42, verbose=True):
+    """Train a single run and return detailed results."""
     
-    Returns:
-        dict with keys: tta_val_acc, total_time_seconds, epoch_results
-    """
+    # Set and log random seed
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    
     batch_size = hyp['opt']['batch_size']
     epochs = hyp['opt']['train_epochs']
     momentum = hyp['opt']['momentum']
@@ -501,13 +530,14 @@ def train_one_run(run, verbose=True):
         print_training_details(locals(), is_final_entry=True)
 
     return {
+        'seed': seed,  # Add this
         'tta_val_acc': tta_val_acc,
         'total_time_seconds': total_time_seconds,
         'epoch_results': epoch_results,
     }
 
 
-def run_experiment(config=None, num_runs=25, experiment_name=None, verbose=True, save_results=True):
+def run_experiment(config=None, num_runs=25, experiment_name=None, verbose=True, save_results=True, seeds=[]):
     """
     Run a complete experiment with the given configuration.
     
@@ -554,9 +584,12 @@ def run_experiment(config=None, num_runs=25, experiment_name=None, verbose=True,
     all_results = []
     accuracies = []
     times = []
-    
+    if len(seeds) < num_runs:
+        print("Not enough seeds provided, generating own list")
+        seeds = [i for i in range(num_runs)]
+
     for run_idx in range(num_runs):
-        result = train_one_run(run_idx, verbose=verbose)
+        result = train_one_run(run_idx, seed=seeds[run_idx], verbose=verbose)
         all_results.append(result)
         accuracies.append(result['tta_val_acc'])
         times.append(result['total_time_seconds'])
@@ -589,7 +622,12 @@ def run_experiment(config=None, num_runs=25, experiment_name=None, verbose=True,
         print(f"Time:     {stats['time']['mean']:.4f} ± {stats['time']['std']:.4f} seconds")
         print(f"{'='*60}\n")
     
-    # Compile full results
+    # Get git info and environment metadata
+    git_info = get_git_info()
+    import socket
+    hostname = socket.gethostname()
+    
+    # Compile full results with ALL metadata
     experiment_results = {
         'experiment_id': experiment_id,
         'experiment_name': experiment_name,
@@ -603,11 +641,16 @@ def run_experiment(config=None, num_runs=25, experiment_name=None, verbose=True,
         'all_results': all_results,
         'hardware': {
             'gpu': torch.cuda.get_device_name() if torch.cuda.is_available() else 'N/A',
+            'gpu_count': torch.cuda.device_count(),
             'cuda_version': torch.version.cuda,
             'torch_version': torch.__version__,
-        }
+            'hostname': hostname,
+            'runpod_instance': os.environ.get('RUNPOD_POD_ID', 'N/A'),  # Add this
+        },
+        'git': git_info,  # Add this
+        'seeds': [r['seed'] for r in all_results],  # Add this
     }
-    
+
     # Save results
     if save_results:
         log_dir = os.path.join('experiment_logs', experiment_id)
