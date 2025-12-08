@@ -507,6 +507,8 @@ def parse_args():
                         help='Zero-initialize auxiliary heads')
     parser.add_argument('--no_aux_head_zero_init', action='store_false', dest='aux_head_zero_init',
                         help='Do not zero-initialize auxiliary heads')
+    parser.add_argument('--seed', type=int, default=None,
+                        help='Random seed to use (overrides SEED env var); defaults to 42 if unset')
     return parser.parse_args()
 
 def main():
@@ -518,8 +520,9 @@ def main():
         aux_head_layers = [int(x.strip()) for x in args.aux_head_layers.split(',')]
     
     # ============ ADD SEED SETTING ============
-    # Set random seed for reproducibility
-    seed = int(os.environ.get('SEED', 42))  # Allow override via env var
+    # Prefer explicit CLI seed, then SEED env var, then fallback default
+    env_seed = os.environ.get('SEED')
+    seed = args.seed if args.seed is not None else int(env_seed) if env_seed is not None else 42
     torch.manual_seed(seed)
     np.random.seed(seed)
     random.seed(seed)

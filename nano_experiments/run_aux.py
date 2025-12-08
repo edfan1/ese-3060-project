@@ -56,6 +56,8 @@ import time
 from datetime import datetime
 from dataclasses import dataclass, field, asdict
 from typing import List, Dict, Optional, Any
+DEFAULT_SEEDS = [42, 1337, 2603, 4242, 7777]
+
 from pathlib import Path
 import shutil
 
@@ -430,6 +432,7 @@ class ExperimentResult:
     """Results from a single experiment run."""
     experiment_name: str
     run_id: int
+    seed: int
     config: Dict[str, Any]
     final_val_loss: float
     final_train_loss: float
@@ -984,16 +987,22 @@ class ExperimentRunner:
         output_dir: str = "experiments",
         num_gpus: int = 8,
         train_script: str = "aux_train_gpt.py",
+        seeds: Optional[List[int]] = None,
     ):
         self.output_dir = Path(output_dir)
         self.num_gpus = num_gpus
         self.train_script = train_script
         self.experiments = get_all_experiments()
+        self.seeds = seeds or DEFAULT_SEEDS
         
         # Create output directory with timestamp
         self.timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.run_dir = self.output_dir / f"aux_heads_{self.timestamp}"
         self.run_dir.mkdir(parents=True, exist_ok=True)
+
+        # Persist the seed plan for reproducibility
+        with open(self.run_dir / "seed_plan.json", "w") as f:
+            json.dump({"seeds": self.seeds}, f, indent=2)
         
         # Results storage
         self.results: List[ExperimentResult] = []
@@ -1019,10 +1028,12 @@ class ExperimentRunner:
             raise ValueError(f"Unknown experiment: {experiment_name}")
         
         config = self.experiments[experiment_name]
+        seed = self.seeds[run_id % len(self.seeds)]
         
         print(f"\n{'='*60}")
         print(f"Running: {experiment_name} (run {run_id})")
         print(f"Description: {config.description}")
+        print(f"Seed: {seed}")
         print(f"{'='*60}")
         
         # Build command
@@ -1031,7 +1042,7 @@ class ExperimentRunner:
             "--standalone",
             f"--nproc_per_node={self.num_gpus}",
             self.train_script,
-        ] + config.to_args()
+        ] + config.to_args() + [f"--seed={seed}"]
         
         print(f"Command: {' '.join(cmd)}")
         
@@ -1040,6 +1051,7 @@ class ExperimentRunner:
             return ExperimentResult(
                 experiment_name=experiment_name,
                 run_id=run_id,
+                seed=seed,
                 config=asdict(config),
                 final_val_loss=0.0,
                 final_train_loss=0.0,
@@ -1055,12 +1067,17 @@ class ExperimentRunner:
         exp_dir.mkdir(parents=True, exist_ok=True)
         
         # Save config
+        config_dict = asdict(config)
+        config_dict["seed"] = seed
         with open(exp_dir / "config.json", "w") as f:
-            json.dump(asdict(config), f, indent=2)
+            json.dump(config_dict, f, indent=2)
         
         # Run experiment
         log_file = exp_dir / "output.log"
         start_time = time.time()
+
+        env = os.environ.copy()
+        env["SEED"] = str(seed)
         
         try:
             with open(log_file, "w") as f:
@@ -1068,6 +1085,7 @@ class ExperimentRunner:
                     cmd,
                     stdout=f,
                     stderr=subprocess.STDOUT,
+                    env=env,
                     timeout=7200,  # 2 hour timeout
                 )
             
@@ -1098,7 +1116,8 @@ class ExperimentRunner:
         result = ExperimentResult(
             experiment_name=experiment_name,
             run_id=run_id,
-            config=asdict(config),
+            seed=seed,
+            config=config_dict,
             final_val_loss=parsed.get("final_val_loss", float("nan")),
             final_train_loss=parsed.get("final_train_loss", float("nan")),
             training_time_ms=parsed.get("training_time_ms", elapsed_time * 1000),
@@ -1444,8 +1463,16 @@ def main():
         default="aux_train_gpt.py",
         help="Path to training script",
     )
+    parser.add_argument(
+        "--seeds",
+        type=str,
+        help="Comma-separated list of seeds to cycle through for runs (default: 42,1337,2603,4242,7777)",
+    )
     
     args = parser.parse_args()
+
+    # Parse seeds once so staged and legacy modes share the same plan
+    seed_list = DEFAULT_SEEDS if not args.seeds else [int(s.strip()) for s in args.seeds.split(',') if s.strip()]
     
     # STAGED ABLATION MODE
     if args.staged or args.stage:
@@ -1454,6 +1481,7 @@ def main():
             num_gpus=args.num_gpus,
             train_script=args.train_script,
             max_budget_hours=args.max_budget_hours,
+            seeds=seed_list,
         )
         
         if args.staged:
@@ -1494,6 +1522,7 @@ def main():
         output_dir=args.output_dir,
         num_gpus=args.num_gpus,
         train_script=args.train_script,
+        seeds=seed_list,
     )
     
     if args.list:
