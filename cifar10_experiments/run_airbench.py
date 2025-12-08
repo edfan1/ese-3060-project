@@ -151,12 +151,11 @@ def get_all_experiments():
         'config': {
             'whiten': {
                 'eps': 1e-3,           # Showed -0.077s time (not sig, but direction is good)
-                'width_multiplier': 2,  # Keep default (width_1 hurt accuracy)
-                'kernel_size': 2,       # Keep default (all others hurt)
+                'width_multiplier': 3,  # Try 3 (showed non sig accuracy increase)
             }
         },
-        'num_runs': 50,
-        'description': 'Combo: eps=1e-3 with defaults (test if eps effect is real)',
+        'num_runs': RUNS_ABLATION,
+        'description': 'Combo: eps=1e-3 with width 3 for combo test',
         'phase': 'combo',
     }
     
