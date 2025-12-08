@@ -1,0 +1,234 @@
+{
+  "timestamp": "2025-12-08T22:43:03.394994",
+  "experiments": {
+    "baseline": {
+      "config": null,
+      "num_runs": 100,
+      "accuracy_mean": 0.9403139352798462,
+      "accuracy_std": 0.0011615926632657647,
+      "time_mean": 4.126598834991455,
+      "time_std": 0.649457573890686
+    },
+    "Q1_kernel_1x1": {
+      "config": {
+        "whiten": {
+          "kernel_size": 1
+        }
+      },
+      "num_runs": 50,
+      "accuracy_mean": 0.9239280223846436,
+      "accuracy_std": 0.001490929746069014,
+      "time_mean": 4.69650411605835,
+      "time_std": 0.6894053816795349
+    },
+    "Q1_kernel_3x3": {
+      "config": {
+        "whiten": {
+          "kernel_size": 3
+        }
+      },
+      "num_runs": 50,
+      "accuracy_mean": 0.939568042755127,
+      "accuracy_std": 0.001316058449447155,
+      "time_mean": 5.132673740386963,
+      "time_std": 0.22285866737365723
+    },
+    "Q1_kernel_4x4": {
+      "config": {
+        "whiten": {
+          "kernel_size": 4
+        }
+      },
+      "num_runs": 50,
+      "accuracy_mean": 0.9371618628501892,
+      "accuracy_std": 0.0012948738876730204,
+      "time_mean": 5.04149055480957,
+      "time_std": 0.5726062059402466
+    },
+    "Q2_width_1": {
+      "config": {
+        "whiten": {
+          "width_multiplier": 1
+        }
+      },
+      "num_runs": 50,
+      "accuracy_mean": 0.9369179606437683,
+      "accuracy_std": 0.0012502552708610892,
+      "time_mean": 4.059289455413818,
+      "time_std": 0.20532020926475525
+    },
+    "Q2_width_3": {
+      "config": {
+        "whiten": {
+          "width_multiplier": 3
+        }
+      },
+      "num_runs": 50,
+      "accuracy_mean": 0.9400779604911804,
+      "accuracy_std": 0.0010784100741147995,
+      "time_mean": 4.665149211883545,
+      "time_std": 0.20744037628173828
+    },
+    "Q3_eps_5e-5": {
+      "config": {
+        "whiten": {
+          "eps": 5e-05
+        }
+      },
+      "num_runs": 50,
+      "accuracy_mean": 0.9399339556694031,
+      "accuracy_std": 0.0012987650698050857,
+      "time_mean": 4.058279037475586,
+      "time_std": 0.020641664043068886
+    },
+    "Q3_eps_1e-4": {
+      "config": {
+        "whiten": {
+          "eps": 0.0001
+        }
+      },
+      "num_runs": 50,
+      "accuracy_mean": 0.9399999976158142,
+      "accuracy_std": 0.0011499819811433554,
+      "time_mean": 4.062140941619873,
+      "time_std": 0.019844848662614822
+    },
+    "Q3_eps_1e-3": {
+      "config": {
+        "whiten": {
+          "eps": 0.001
+        }
+      },
+      "num_runs": 50,
+      "accuracy_mean": 0.9402099847793579,
+      "accuracy_std": 0.0013665446313098073,
+      "time_mean": 4.060450553894043,
+      "time_std": 0.01788458786904812
+    },
+    "Q3_eps_5e-3": {
+      "config": {
+        "whiten": {
+          "eps": 0.005
+        }
+      },
+      "num_runs": 50,
+      "accuracy_mean": 0.9402539134025574,
+      "accuracy_std": 0.0012074979022145271,
+      "time_mean": 4.070298194885254,
+      "time_std": 0.022137831896543503
+    },
+    "Q4_trainable_epoch0": {
+      "config": {
+        "whiten": {
+          "trainable_after_epoch": 0,
+          "trainable_lr_mult": 0.01
+        }
+      },
+      "num_runs": 50,
+      "accuracy_mean": 0.9207419753074646,
+      "accuracy_std": 0.007699357345700264,
+      "time_mean": 4.3000569343566895,
+      "time_std": 0.023387638852000237
+    },
+    "Q4_trainable_epoch3": {
+      "config": {
+        "whiten": {
+          "trainable_after_epoch": 3,
+          "trainable_lr_mult": 0.01
+        }
+      },
+      "num_runs": 50,
+      "accuracy_mean": 0.9311740398406982,
+      "accuracy_std": 0.013230747543275356,
+      "time_mean": 4.288332462310791,
+      "time_std": 0.018703438341617584
+    },
+    "Q4_trainable_epoch5": {
+      "config": {
+        "whiten": {
+          "trainable_after_epoch": 5,
+          "trainable_lr_mult": 0.01
+        }
+      },
+      "num_runs": 50,
+      "accuracy_mean": 0.93709397315979,
+      "accuracy_std": 0.0012879973510280252,
+      "time_mean": 4.241253852844238,
+      "time_std": 0.034869998693466187
+    },
+    "Q4_trainable_epoch3_lr0.1": {
+      "config": {
+        "whiten": {
+          "trainable_after_epoch": 3,
+          "trainable_lr_mult": 0.1
+        }
+      },
+      "num_runs": 50,
+      "accuracy_mean": 0.9299859404563904,
+      "accuracy_std": 0.004720818251371384,
+      "time_mean": 4.287649154663086,
+      "time_std": 0.014188364148139954
+    },
+    "combo_eps_width": {
+      "config": {
+        "whiten": {
+          "eps": 0.001,
+          "width_multiplier": 3
+        }
+      },
+      "num_runs": 50,
+      "accuracy_mean": 0.940280020236969,
+      "accuracy_std": 0.0012571432162076235,
+      "time_mean": 4.637758731842041,
+      "time_std": 0.01989179104566574
+    },
+    "J_alpha_exp2": {
+      "config": {
+        "lookahead": {
+          "step_exp": 2
+        }
+      },
+      "num_runs": 50,
+      "accuracy_mean": 0.940123975276947,
+      "accuracy_std": 0.0011730942642316222,
+      "time_mean": 4.064266681671143,
+      "time_std": 0.021851997822523117
+    },
+    "J_alpha_exp4": {
+      "config": {
+        "lookahead": {
+          "step_exp": 4
+        }
+      },
+      "num_runs": 50,
+      "accuracy_mean": 0.940123975276947,
+      "accuracy_std": 0.0011730942642316222,
+      "time_mean": 4.068681716918945,
+      "time_std": 0.02234746515750885
+    },
+    "J_alpha_exp5": {
+      "config": {
+        "lookahead": {
+          "step_exp": 5
+        }
+      },
+      "num_runs": 50,
+      "accuracy_mean": 0.940123975276947,
+      "accuracy_std": 0.0011730942642316222,
+      "time_mean": 4.0673980712890625,
+      "time_std": 0.0187320988625288
+    },
+    "J_alpha_base090": {
+      "config": {
+        "lookahead": {
+          "coef": 0.9
+        }
+      },
+      "num_runs": 50,
+      "accuracy_mean": 0.940123975276947,
+      "accuracy_std": 0.0011730942642316222,
+      "time_mean": 4.060973167419434,
+      "time_std": 0.015078926458954811
+    }
+  }
+}
