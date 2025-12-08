@@ -25,6 +25,7 @@ import torch._inductor.config as config
 from torch.nn.parallel import DistributedDataParallel as DDP
 
 from typing import List, Optional, Dict
+import random
 
 # -----------------------------------------------------------------------------
 # Muon optimizer
@@ -516,6 +517,16 @@ def main():
     if args.aux_head_layers:
         aux_head_layers = [int(x.strip()) for x in args.aux_head_layers.split(',')]
     
+    # ============ ADD SEED SETTING ============
+    # Set random seed for reproducibility
+    seed = int(os.environ.get('SEED', 42))  # Allow override via env var
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    # ==========================================
+    
     # set up DDP (distributed data parallel). torchrun sets this env variable
     assert torch.cuda.is_available()
     dist.init_process_group(backend='nccl')
@@ -525,13 +536,32 @@ def main():
     device = f'cuda:{ddp_local_rank}'
     torch.cuda.set_device(device)
     print(f"using device: {device}")
-    master_process = (ddp_rank == 0) # this process will do logging, checkpointing etc.
+    master_process = (ddp_rank == 0)
+    
+    # ============ ADD GIT COMMIT HASH ============
+    git_commit = "unknown"
+    try:
+        import subprocess
+        result = subprocess.run(['git', 'rev-parse', 'HEAD'], 
+                                stdout=subprocess.PIPE, 
+                                stderr=subprocess.PIPE, 
+                                text=True, 
+                                timeout=5)
+        if result.returncode == 0:
+            git_commit = result.stdout.strip()
+    except:
+        pass
+    # =============================================
     
     if master_process:
         print(f"Auxiliary head configuration:")
         print(f"  Layers: {aux_head_layers if aux_head_layers else 'None (baseline)'}")
         print(f"  Loss weight: {args.aux_loss_weight}")
         print(f"  Loss schedule: {args.aux_loss_schedule}")
+        # ============ ADD SEED + GIT LOGGING ============
+        print(f"  Random seed: {seed}")
+        print(f"  Git commit: {git_commit}")
+        # ================================================
 
     # convenience variables
     B, T = args.device_batch_size, args.sequence_length
@@ -614,25 +644,72 @@ def main():
         logdir = 'logs/%s/' % run_id
         os.makedirs(logdir, exist_ok=True)
         logfile = 'logs/%s.txt' % run_id
+        
+        # ============ ENHANCED LOGGING HEADER ============
         # create the log file
         with open(logfile, "w") as f:
             # begin the log by printing this file (the Python code)
             f.write('='*100 + '\n')
             f.write(code)
             f.write('='*100 + '\n')
+            
+            # ============ ADD EXPERIMENT METADATA ============
+            f.write('\nEXPERIMENT METADATA\n')
+            f.write('='*100 + '\n')
+            f.write(f"Run ID: {run_id}\n")
+            f.write(f"Timestamp: {datetime.now().isoformat()}\n")
+            f.write(f"Git commit: {git_commit}\n")
+            f.write(f"Random seed: {seed}\n")
+            f.write('\n')
+            
+            # ============ ADD HYPERPARAMETERS ============
+            f.write('HYPERPARAMETERS\n')
+            f.write('-'*100 + '\n')
+            f.write(f"Batch size (global): {args.batch_size}\n")
+            f.write(f"Batch size (per device): {args.device_batch_size}\n")
+            f.write(f"Sequence length: {args.sequence_length}\n")
+            f.write(f"Number of iterations: {args.num_iterations}\n")
+            f.write(f"Learning rate: {args.learning_rate}\n")
+            f.write(f"Warmup iterations: {args.warmup_iters}\n")
+            f.write(f"Warmdown iterations: {args.warmdown_iters}\n")
+            f.write(f"Weight decay: {args.weight_decay}\n")
+            f.write(f"Validation every: {args.val_loss_every}\n")
+            f.write(f"Validation tokens: {args.val_tokens}\n")
+            f.write('\n')
+            
+            # ============ ADD GPU/SYSTEM INFO ============
+            f.write('SYSTEM INFORMATION\n')
+            f.write('-'*100 + '\n')
+            f.write(f"PyTorch version: {torch.version.__version__}\n")
+            f.write(f"CUDA version: {torch.version.cuda}\n")
+            f.write(f"Number of GPUs: {ddp_world_size}\n")
+            f.write(f"GPU type: {torch.cuda.get_device_name(0)}\n")
+            # ============ ADD RUNPOD INSTANCE INFO ============
+            runpod_id = os.environ.get('RUNPOD_POD_ID', 'N/A')
+            runpod_type = os.environ.get('RUNPOD_GPU_TYPE', 'N/A')
+            f.write(f"RunPod instance ID: {runpod_id}\n")
+            f.write(f"RunPod GPU type: {runpod_type}\n")
+            f.write('\n')
+            # ==================================================
+            
             # log information about the hardware/software environment this is running on
             # and print the full `nvidia-smi` to file
-            f.write(f"Running pytorch {torch.version.__version__} compiled for CUDA {torch.version.cuda}\nnvidia-smi:\n")
+            f.write('NVIDIA-SMI OUTPUT\n')
+            f.write('-'*100 + '\n')
             import subprocess
             result = subprocess.run(['nvidia-smi'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             f.write(f'{result.stdout}\n')
             f.write('='*100 + '\n')
+            
             # Log auxiliary head configuration
-            f.write(f"\nAuxiliary Head Configuration:\n")
-            f.write(f"  Layers: {aux_head_layers if aux_head_layers else 'None (baseline)'}\n")
-            f.write(f"  Loss weight: {args.aux_loss_weight}\n")
-            f.write(f"  Loss schedule: {args.aux_loss_schedule}\n")
+            f.write(f"\nAUXILIARY HEAD CONFIGURATION\n")
+            f.write('-'*100 + '\n')
+            f.write(f"Layers: {aux_head_layers if aux_head_layers else 'None (baseline)'}\n")
+            f.write(f"Loss weight: {args.aux_loss_weight}\n")
+            f.write(f"Loss schedule: {args.aux_loss_schedule}\n")
+            f.write(f"Zero init: {args.aux_head_zero_init}\n")
             f.write('='*100 + '\n')
+        # =================================================
         
         # Create separate log for auxiliary losses
         aux_logfile = 'logs/%s_aux.txt' % run_id
@@ -756,6 +833,15 @@ def main():
 
     if master_process:
         print(f"peak memory consumption: {torch.cuda.max_memory_allocated() // 1024 // 1024} MiB")
-
-if __name__ == "__main__":
-    main()
+        
+        # Add final summary to log
+        with open(logfile, "a") as f:
+            f.write("\n" + "="*100 + "\n")
+            f.write("FINAL RESULTS\n")
+            f.write("="*100 + "\n")
+            f.write(f"Total training time: {training_time_ms/1000:.1f}s\n")
+            f.write(f"Peak memory: {torch.cuda.max_memory_allocated() // 1024 // 1024} MiB\n")
+            f.write(f"Completed iterations: {args.num_iterations}\n")
+            f.write(f"Final validation loss: (see last val_loss entry above)\n")
+            f.write("="*100 + "\n")
+    # ==================================================
