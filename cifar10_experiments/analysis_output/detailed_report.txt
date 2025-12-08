@@ -1,6 +1,6 @@
 ================================================================================
 DETAILED EXPERIMENT ANALYSIS REPORT
-Generated: 2025-12-08T03:24:20.583752
+Generated: 2025-12-08T17:56:29.047960
 ================================================================================
 
 
@@ -12,25 +12,25 @@ Configuration:
   whiten: {'kernel_size': 1}
 
 Accuracy Statistics (n=50):
-  Mean:   0.9242
-  Std:    0.0016
+  Mean:   0.9239
+  Std:    0.0015
   95% CI: ± 0.0004
-  Range:  [0.9205, 0.9290]
-  Median: 0.9240
+  Range:  [0.9201, 0.9265]
+  Median: 0.9239
 
 Time Statistics:
-  Mean:   4.784 s
-  Std:    0.950 s
-  Range:  [4.542, 11.362] s
+  Mean:   4.697 s
+  Std:    0.689 s
+  Range:  [4.569, 9.471] s
 
 Comparison with Baseline:
-  Δ Accuracy:  -0.0161
-  Δ Time:      +0.592 s
+  Δ Accuracy:  -0.0164
+  Δ Time:      +0.570 s
 
   Accuracy t-test:
-    t-statistic: -60.8553
+    t-statistic: -68.0683
     p-value:     0.000000
-    Cohen's d:   -10.9049
+    Cohen's d:   -12.2609
     Significant (p<0.05): True
 
 ============================================================
@@ -41,25 +41,25 @@ Configuration:
   whiten: {'kernel_size': 3}
 
 Accuracy Statistics (n=50):
-  Mean:   0.9392
-  Std:    0.0011
-  95% CI: ± 0.0003
-  Range:  [0.9368, 0.9421]
-  Median: 0.9391
+  Mean:   0.9396
+  Std:    0.0013
+  95% CI: ± 0.0004
+  Range:  [0.9369, 0.9420]
+  Median: 0.9395
 
 Time Statistics:
-  Mean:   5.299 s
-  Std:    1.034 s
-  Range:  [5.068, 12.464] s
+  Mean:   5.133 s
+  Std:    0.223 s
+  Range:  [5.063, 6.658] s
 
 Comparison with Baseline:
-  Δ Accuracy:  -0.0011
-  Δ Time:      +1.108 s
+  Δ Accuracy:  -0.0007
+  Δ Time:      +1.006 s
 
   Accuracy t-test:
-    t-statistic: -5.2078
-    p-value:     0.000001
-    Cohen's d:   -0.8799
+    t-statistic: -3.4003
+    p-value:     0.001014
+    Cohen's d:   -0.6010
     Significant (p<0.05): True
 
 ============================================================
@@ -70,25 +70,25 @@ Configuration:
   whiten: {'kernel_size': 4}
 
 Accuracy Statistics (n=50):
-  Mean:   0.9373
-  Std:    0.0017
-  95% CI: ± 0.0005
-  Range:  [0.9338, 0.9407]
-  Median: 0.9376
+  Mean:   0.9372
+  Std:    0.0013
+  95% CI: ± 0.0004
+  Range:  [0.9347, 0.9396]
+  Median: 0.9372
 
 Time Statistics:
-  Mean:   5.109 s
-  Std:    0.717 s
-  Range:  [4.925, 10.072] s
+  Mean:   5.041 s
+  Std:    0.573 s
+  Range:  [4.925, 9.005] s
 
 Comparison with Baseline:
-  Δ Accuracy:  -0.0029
-  Δ Time:      +0.917 s
+  Δ Accuracy:  -0.0032
+  Δ Time:      +0.915 s
 
   Accuracy t-test:
-    t-statistic: -10.9548
+    t-statistic: -14.5349
     p-value:     0.000000
-    Cohen's d:   -1.9690
+    Cohen's d:   -2.5625
     Significant (p<0.05): True
 
 ============================================================
@@ -99,25 +99,25 @@ Configuration:
   whiten: {'width_multiplier': 1}
 
 Accuracy Statistics (n=50):
-  Mean:   0.9366
-  Std:    0.0012
+  Mean:   0.9369
+  Std:    0.0013
   95% CI: ± 0.0003
-  Range:  [0.9341, 0.9395]
-  Median: 0.9363
+  Range:  [0.9347, 0.9395]
+  Median: 0.9369
 
 Time Statistics:
-  Mean:   4.251 s
-  Std:    1.358 s
-  Range:  [3.955, 13.655] s
+  Mean:   4.059 s
+  Std:    0.205 s
+  Range:  [4.003, 5.464] s
 
 Comparison with Baseline:
-  Δ Accuracy:  -0.0037
-  Δ Time:      +0.059 s
+  Δ Accuracy:  -0.0034
+  Δ Time:      -0.067 s
 
   Accuracy t-test:
-    t-statistic: -17.0509
+    t-statistic: -16.0525
     p-value:     0.000000
-    Cohen's d:   -2.9142
+    Cohen's d:   -2.8142
     Significant (p<0.05): True
 
 ============================================================
@@ -128,25 +128,25 @@ Configuration:
   whiten: {'width_multiplier': 3}
 
 Accuracy Statistics (n=50):
-  Mean:   0.9403
-  Std:    0.0012
+  Mean:   0.9401
+  Std:    0.0011
   95% CI: ± 0.0003
-  Range:  [0.9377, 0.9433]
-  Median: 0.9403
+  Range:  [0.9375, 0.9428]
+  Median: 0.9401
 
 Time Statistics:
-  Mean:   4.754 s
-  Std:    0.259 s
-  Range:  [4.635, 6.545] s
+  Mean:   4.665 s
+  Std:    0.207 s
+  Range:  [4.619, 6.094] s
 
 Comparison with Baseline:
-  Δ Accuracy:  +0.0001
-  Δ Time:      +0.563 s
+  Δ Accuracy:  -0.0002
+  Δ Time:      +0.539 s
 
   Accuracy t-test:
-    t-statistic: 0.3250
-    p-value:     0.745818
-    Cohen's d:   0.0556
+    t-statistic: -1.2310
+    p-value:     0.221069
+    Cohen's d:   -0.2106
     Significant (p<0.05): False
 
 ============================================================
@@ -157,25 +157,25 @@ Configuration:
   whiten: {'eps': 0.001}
 
 Accuracy Statistics (n=50):
-  Mean:   0.9401
-  Std:    0.0016
+  Mean:   0.9402
+  Std:    0.0014
   95% CI: ± 0.0004
-  Range:  [0.9360, 0.9430]
-  Median: 0.9401
+  Range:  [0.9371, 0.9435]
+  Median: 0.9400
 
 Time Statistics:
-  Mean:   4.115 s
-  Std:    0.035 s
-  Range:  [4.042, 4.142] s
+  Mean:   4.060 s
+  Std:    0.018 s
+  Range:  [4.040, 4.094] s
 
 Comparison with Baseline:
-  Δ Accuracy:  -0.0002
-  Δ Time:      -0.077 s
+  Δ Accuracy:  -0.0001
+  Δ Time:      -0.066 s
 
   Accuracy t-test:
-    t-statistic: -0.6097
-    p-value:     0.543737
-    Cohen's d:   -0.1088
+    t-statistic: -0.4612
+    p-value:     0.645817
+    Cohen's d:   -0.0820
     Significant (p<0.05): False
 
 ============================================================
@@ -186,25 +186,25 @@ Configuration:
   whiten: {'eps': 0.0001}
 
 Accuracy Statistics (n=50):
-  Mean:   0.9403
+  Mean:   0.9400
   Std:    0.0011
   95% CI: ± 0.0003
-  Range:  [0.9374, 0.9422]
-  Median: 0.9405
+  Range:  [0.9372, 0.9425]
+  Median: 0.9398
 
 Time Statistics:
-  Mean:   4.125 s
-  Std:    0.029 s
-  Range:  [4.039, 4.191] s
+  Mean:   4.062 s
+  Std:    0.020 s
+  Range:  [4.042, 4.110] s
 
 Comparison with Baseline:
-  Δ Accuracy:  +0.0001
-  Δ Time:      -0.066 s
+  Δ Accuracy:  -0.0003
+  Δ Time:      -0.064 s
 
   Accuracy t-test:
-    t-statistic: 0.5320
-    p-value:     0.595741
-    Cohen's d:   0.0894
+    t-statistic: -1.5711
+    p-value:     0.119349
+    Cohen's d:   -0.2717
     Significant (p<0.05): False
 
 ============================================================
@@ -215,25 +215,25 @@ Configuration:
   whiten: {'eps': 0.005}
 
 Accuracy Statistics (n=50):
-  Mean:   0.9400
-  Std:    0.0013
+  Mean:   0.9403
+  Std:    0.0012
   95% CI: ± 0.0003
-  Range:  [0.9372, 0.9426]
-  Median: 0.9401
+  Range:  [0.9372, 0.9422]
+  Median: 0.9404
 
 Time Statistics:
-  Mean:   4.118 s
-  Std:    0.030 s
-  Range:  [4.039, 4.141] s
+  Mean:   4.070 s
+  Std:    0.022 s
+  Range:  [4.042, 4.110] s
 
 Comparison with Baseline:
-  Δ Accuracy:  -0.0002
-  Δ Time:      -0.074 s
+  Δ Accuracy:  -0.0001
+  Δ Time:      -0.056 s
 
   Accuracy t-test:
-    t-statistic: -0.8893
-    p-value:     0.375952
-    Cohen's d:   -0.1529
+    t-statistic: -0.2905
+    p-value:     0.772072
+    Cohen's d:   -0.0506
     Significant (p<0.05): False
 
 ============================================================
@@ -244,25 +244,25 @@ Configuration:
   whiten: {'eps': 5e-05}
 
 Accuracy Statistics (n=50):
-  Mean:   0.9404
-  Std:    0.0011
-  95% CI: ± 0.0003
-  Range:  [0.9366, 0.9425]
-  Median: 0.9405
+  Mean:   0.9399
+  Std:    0.0013
+  95% CI: ± 0.0004
+  Range:  [0.9374, 0.9434]
+  Median: 0.9398
 
 Time Statistics:
-  Mean:   4.280 s
-  Std:    1.173 s
-  Range:  [4.032, 12.406] s
+  Mean:   4.058 s
+  Std:    0.021 s
+  Range:  [4.042, 4.128] s
 
 Comparison with Baseline:
-  Δ Accuracy:  +0.0001
-  Δ Time:      +0.089 s
+  Δ Accuracy:  -0.0004
+  Δ Time:      -0.068 s
 
   Accuracy t-test:
-    t-statistic: 0.7183
-    p-value:     0.474069
-    Cohen's d:   0.1213
+    t-statistic: -1.7485
+    p-value:     0.083818
+    Cohen's d:   -0.3084
     Significant (p<0.05): False
 
 ============================================================
@@ -273,25 +273,25 @@ Configuration:
   whiten: {'trainable_after_epoch': 0, 'trainable_lr_mult': 0.01}
 
 Accuracy Statistics (n=50):
-  Mean:   0.9226
-  Std:    0.0087
-  95% CI: ± 0.0024
-  Range:  [0.8855, 0.9324]
-  Median: 0.9239
+  Mean:   0.9207
+  Std:    0.0077
+  95% CI: ± 0.0021
+  Range:  [0.8948, 0.9321]
+  Median: 0.9220
 
 Time Statistics:
-  Mean:   4.491 s
-  Std:    1.163 s
-  Range:  [4.187, 12.545] s
+  Mean:   4.300 s
+  Std:    0.023 s
+  Range:  [4.284, 4.377] s
 
 Comparison with Baseline:
-  Δ Accuracy:  -0.0177
-  Δ Time:      +0.300 s
+  Δ Accuracy:  -0.0196
+  Δ Time:      +0.173 s
 
   Accuracy t-test:
-    t-statistic: -14.3483
+    t-statistic: -17.8735
     p-value:     0.000000
-    Cohen's d:   -2.8536
+    Cohen's d:   -3.5547
     Significant (p<0.05): True
 
 ============================================================
@@ -302,25 +302,25 @@ Configuration:
   whiten: {'trainable_after_epoch': 3, 'trainable_lr_mult': 0.01}
 
 Accuracy Statistics (n=50):
-  Mean:   0.9326
-  Std:    0.0035
-  95% CI: ± 0.0010
-  Range:  [0.9222, 0.9381]
-  Median: 0.9332
+  Mean:   0.9312
+  Std:    0.0132
+  95% CI: ± 0.0037
+  Range:  [0.8431, 0.9385]
+  Median: 0.9337
 
 Time Statistics:
-  Mean:   4.337 s
-  Std:    0.032 s
-  Range:  [4.261, 4.360] s
+  Mean:   4.288 s
+  Std:    0.019 s
+  Range:  [4.278, 4.366] s
 
 Comparison with Baseline:
-  Δ Accuracy:  -0.0076
-  Δ Time:      +0.146 s
+  Δ Accuracy:  -0.0091
+  Δ Time:      +0.162 s
 
   Accuracy t-test:
-    t-statistic: -14.7593
-    p-value:     0.000000
-    Cohen's d:   -2.8619
+    t-statistic: -4.8754
+    p-value:     0.000012
+    Cohen's d:   -0.9732
     Significant (p<0.05): True
 
 ============================================================
@@ -331,25 +331,25 @@ Configuration:
   whiten: {'trainable_after_epoch': 3, 'trainable_lr_mult': 0.1}
 
 Accuracy Statistics (n=50):
-  Mean:   0.9309
-  Std:    0.0059
-  95% CI: ± 0.0016
-  Range:  [0.8987, 0.9368]
-  Median: 0.9321
+  Mean:   0.9300
+  Std:    0.0047
+  95% CI: ± 0.0013
+  Range:  [0.9171, 0.9357]
+  Median: 0.9319
 
 Time Statistics:
-  Mean:   4.335 s
-  Std:    0.033 s
-  Range:  [4.257, 4.361] s
+  Mean:   4.288 s
+  Std:    0.014 s
+  Range:  [4.278, 4.354] s
 
 Comparison with Baseline:
-  Δ Accuracy:  -0.0094
-  Δ Time:      +0.144 s
+  Δ Accuracy:  -0.0103
+  Δ Time:      +0.161 s
 
   Accuracy t-test:
-    t-statistic: -11.0292
+    t-statistic: -15.2408
     p-value:     0.000000
-    Cohen's d:   -2.1800
+    Cohen's d:   -3.0043
     Significant (p<0.05): True
 
 ============================================================
@@ -360,25 +360,25 @@ Configuration:
   whiten: {'trainable_after_epoch': 5, 'trainable_lr_mult': 0.01}
 
 Accuracy Statistics (n=50):
-  Mean:   0.9365
+  Mean:   0.9371
   Std:    0.0013
   95% CI: ± 0.0004
-  Range:  [0.9337, 0.9395]
-  Median: 0.9363
+  Range:  [0.9335, 0.9414]
+  Median: 0.9370
 
 Time Statistics:
-  Mean:   4.277 s
-  Std:    0.033 s
-  Range:  [4.192, 4.365] s
+  Mean:   4.241 s
+  Std:    0.035 s
+  Range:  [4.207, 4.300] s
 
 Comparison with Baseline:
-  Δ Accuracy:  -0.0038
-  Δ Time:      +0.086 s
+  Δ Accuracy:  -0.0032
+  Δ Time:      +0.115 s
 
   Accuracy t-test:
-    t-statistic: -16.6712
+    t-statistic: -14.9049
     p-value:     0.000000
-    Cohen's d:   -2.8831
+    Cohen's d:   -2.6255
     Significant (p<0.05): True
 
 ============================================================
@@ -389,16 +389,16 @@ Configuration:
   (baseline - no modifications)
 
 Accuracy Statistics (n=100):
-  Mean:   0.9402
-  Std:    0.0013
-  95% CI: ± 0.0003
-  Range:  [0.9374, 0.9446]
+  Mean:   0.9403
+  Std:    0.0012
+  95% CI: ± 0.0002
+  Range:  [0.9370, 0.9433]
   Median: 0.9401
 
 Time Statistics:
-  Mean:   4.192 s
-  Std:    0.864 s
-  Range:  [3.966, 12.739] s
+  Mean:   4.127 s
+  Std:    0.649 s
+  Range:  [3.927, 10.231] s
 
 ============================================================
 EXPERIMENT: combo_eps_width
@@ -408,23 +408,23 @@ Configuration:
   whiten: {'eps': 0.001, 'width_multiplier': 3}
 
 Accuracy Statistics (n=50):
-  Mean:   0.9402
-  Std:    0.0012
+  Mean:   0.9403
+  Std:    0.0013
   95% CI: ± 0.0003
-  Range:  [0.9381, 0.9427]
-  Median: 0.9401
+  Range:  [0.9374, 0.9428]
+  Median: 0.9402
 
 Time Statistics:
-  Mean:   4.832 s
-  Std:    1.088 s
-  Range:  [4.578, 12.370] s
+  Mean:   4.638 s
+  Std:    0.020 s
+  Range:  [4.623, 4.723] s
 
 Comparison with Baseline:
-  Δ Accuracy:  -0.0001
-  Δ Time:      +0.640 s
+  Δ Accuracy:  -0.0000
+  Δ Time:      +0.511 s
 
   Accuracy t-test:
-    t-statistic: -0.3117
-    p-value:     0.755930
-    Cohen's d:   -0.0535
+    t-statistic: -0.1601
+    p-value:     0.873163
+    Cohen's d:   -0.0281
     Significant (p<0.05): False
