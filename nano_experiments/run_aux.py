@@ -422,7 +422,6 @@ def get_all_experiments() -> Dict[str, ExperimentConfig]:
     
     experiments = experiments | get_screening_experiments()
     experiments = experiments | get_layer_position_experiments()
-    experiments = experiments | get_deep_dive_experiments()
     
     return experiments
 

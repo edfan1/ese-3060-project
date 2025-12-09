@@ -72,13 +72,13 @@ If you want more control:
 python run_aux.py --stage 1
 
 # Check results
-python staged_analysis_helper.py --stage 1 --exp_dir experiments/aux_heads_XXXXXX
+python analyze_aux.py --stage 1 --exp_dir experiments/aux_heads_XXXXXX
 
 # If promising, continue...
 python run_aux.py --stage 2
 
 # Analyze
-python staged_analysis_helper.py --stage 2 --exp_dir experiments/aux_heads_XXXXXX
+python analyze_aux.py --stage 2 --exp_dir experiments/aux_heads_XXXXXX
 
 # Stage 3 & 4
 python run_aux.py --stage 3
