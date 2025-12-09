@@ -215,8 +215,8 @@ def get_git_info(repo_path: str = ".") -> Dict[str, Any]:
 def get_system_info() -> Dict[str, Any]:
     """Collect all system information for experiment logging."""
     return {
-        "gpu": get_gpu_info(),
-        "runpod": get_runpod_info(),
+        # "gpu": get_gpu_info(),
+        # "runpod": get_runpod_info(),
         "git": get_git_info(),
         "hostname": os.environ.get("HOSTNAME", os.uname().nodename if hasattr(os, 'uname') else None),
         "collected_at": datetime.now().isoformat(),
@@ -633,7 +633,7 @@ class AblationRunner:
         self.dry_run = dry_run
         
         # Collect system information once at startup
-        self.system_info = get_system_info()
+        # self.system_info = get_system_info()
         
         # Create results directory
         self.results_dir.mkdir(parents=True, exist_ok=True)
@@ -643,9 +643,9 @@ class AblationRunner:
         self.status = self._load_status()
         
         # Save system info to status if first run
-        if "system_info" not in self.status:
-            self.status["system_info"] = self.system_info
-            self._save_status()
+        # if "system_info" not in self.status:
+        #     self.status["system_info"] = self.system_info
+        #     self._save_status()
     
     def _load_status(self) -> Dict[str, Any]:
         """Load experiment status from file."""
@@ -707,11 +707,11 @@ class AblationRunner:
         print(f"Description: {config.description}")
         print(f"Phase: {config.phase}, Stage: {config.stage}")
         print(f"Iterations: {config.num_iterations}")
-        print(f"GPU: {self.system_info['gpu']['gpu_type']} x{self.system_info['gpu']['gpu_count']}")
-        if self.system_info['runpod']['is_runpod']:
-            print(f"RunPod: {self.system_info['runpod'].get('instance_type', self.system_info['runpod'].get('pod_id', 'N/A'))}")
-        print(f"Git: {self.system_info['git']['commit_hash_short'] or 'N/A'}" + 
-              (" (dirty)" if self.system_info['git']['is_dirty'] else ""))
+        # print(f"GPU: {self.system_info['gpu']['gpu_type']} x{self.system_info['gpu']['gpu_count']}")
+        # if self.system_info['runpod']['is_runpod']:
+        #     print(f"RunPod: {self.system_info['runpod'].get('instance_type', self.system_info['runpod'].get('pod_id', 'N/A'))}")
+        # print(f"Git: {self.system_info['git']['commit_hash_short'] or 'N/A'}" + 
+        #       (" (dirty)" if self.system_info['git']['is_dirty'] else ""))
         print(f"Command: {' '.join(cmd)}")
         print(f"{'='*60}")
         
@@ -725,17 +725,17 @@ class AblationRunner:
             "status": "running",
             "started_at": datetime.now().isoformat(),
             "config": asdict(config),
-            "system_info": {
-                "gpu_type": self.system_info["gpu"]["gpu_type"],
-                "gpu_count": self.system_info["gpu"]["gpu_count"],
-                "gpu_memory_mb": self.system_info["gpu"]["gpu_memory_mb"],
-                "runpod": self.system_info["runpod"] if self.system_info["runpod"]["is_runpod"] else None,
-                "git_commit": self.system_info["git"]["commit_hash"],
-                "git_commit_short": self.system_info["git"]["commit_hash_short"],
-                "git_branch": self.system_info["git"]["branch"],
-                "git_dirty": self.system_info["git"]["is_dirty"],
-                "hostname": self.system_info["hostname"],
-            },
+            # "system_info": {
+            #     "gpu_type": self.system_info["gpu"]["gpu_type"],
+            #     "gpu_count": self.system_info["gpu"]["gpu_count"],
+            #     "gpu_memory_mb": self.system_info["gpu"]["gpu_memory_mb"],
+            #     "runpod": self.system_info["runpod"] if self.system_info["runpod"]["is_runpod"] else None,
+            #     "git_commit": self.system_info["git"]["commit_hash"],
+            #     "git_commit_short": self.system_info["git"]["commit_hash_short"],
+            #     "git_branch": self.system_info["git"]["branch"],
+            #     "git_dirty": self.system_info["git"]["is_dirty"],
+            #     "hostname": self.system_info["hostname"],
+            # },
         }
         self._save_status()
         
@@ -748,18 +748,18 @@ class AblationRunner:
                 # Write command and system info to log
                 log_f.write(f"Command: {' '.join(cmd)}\n")
                 log_f.write(f"Started: {datetime.now().isoformat()}\n")
-                log_f.write(f"\n--- System Information ---\n")
-                log_f.write(f"GPU Type: {self.system_info['gpu']['gpu_type']}\n")
-                log_f.write(f"GPU Count: {self.system_info['gpu']['gpu_count']}\n")
-                log_f.write(f"GPU Memory: {self.system_info['gpu']['gpu_memory_mb']} MB\n")
-                if self.system_info['runpod']['is_runpod']:
-                    log_f.write(f"RunPod Instance: {self.system_info['runpod'].get('instance_type', 'N/A')}\n")
-                    log_f.write(f"RunPod Pod ID: {self.system_info['runpod'].get('pod_id', 'N/A')}\n")
-                log_f.write(f"Git Commit: {self.system_info['git']['commit_hash_short']}")
-                if self.system_info['git']['is_dirty']:
-                    log_f.write(" (dirty)")
-                log_f.write(f"\nGit Branch: {self.system_info['git']['branch']}\n")
-                log_f.write(f"Hostname: {self.system_info['hostname']}\n")
+                # log_f.write(f"\n--- System Information ---\n")
+                # log_f.write(f"GPU Type: {self.system_info['gpu']['gpu_type']}\n")
+                # log_f.write(f"GPU Count: {self.system_info['gpu']['gpu_count']}\n")
+                # log_f.write(f"GPU Memory: {self.system_info['gpu']['gpu_memory_mb']} MB\n")
+                # if self.system_info['runpod']['is_runpod']:
+                #     log_f.write(f"RunPod Instance: {self.system_info['runpod'].get('instance_type', 'N/A')}\n")
+                #     log_f.write(f"RunPod Pod ID: {self.system_info['runpod'].get('pod_id', 'N/A')}\n")
+                # log_f.write(f"Git Commit: {self.system_info['git']['commit_hash_short']}")
+                # if self.system_info['git']['is_dirty']:
+                #     log_f.write(" (dirty)")
+                # log_f.write(f"\nGit Branch: {self.system_info['git']['branch']}\n")
+                # log_f.write(f"Hostname: {self.system_info['hostname']}\n")
                 log_f.write("="*60 + "\n\n")
                 log_f.flush()
                 
@@ -825,11 +825,11 @@ class AblationRunner:
         print(f"\n{'#'*60}")
         print(f"# Running {total} experiments")
         print(f"# Results directory: {self.results_dir}")
-        print(f"# GPUs: {self.gpus} x {self.system_info['gpu']['gpu_type'] or 'Unknown'}")
-        if self.system_info['runpod']['is_runpod']:
-            print(f"# RunPod: {self.system_info['runpod'].get('instance_type', self.system_info['runpod'].get('pod_id', 'N/A'))}")
-        print(f"# Git: {self.system_info['git']['commit_hash_short'] or 'N/A'}" +
-              (f" on {self.system_info['git']['branch']}" if self.system_info['git']['branch'] else ""))
+        # print(f"# GPUs: {self.gpus} x {self.system_info['gpu']['gpu_type'] or 'Unknown'}")
+        # if self.system_info['runpod']['is_runpod']:
+        #     print(f"# RunPod: {self.system_info['runpod'].get('instance_type', self.system_info['runpod'].get('pod_id', 'N/A'))}")
+        # print(f"# Git: {self.system_info['git']['commit_hash_short'] or 'N/A'}" +
+        #       (f" on {self.system_info['git']['branch']}" if self.system_info['git']['branch'] else ""))
         print(f"{'#'*60}")
         
         for i, config in enumerate(experiments, 1):
