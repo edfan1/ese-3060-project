@@ -837,24 +837,11 @@ for step in range(args.num_iterations + 1):
         t0 = time.time()
 
     if master_process and (last_step or (args.save_every > 0 and step % args.save_every == 0)):
-        # stop the clock
+        # stop the clock and keep timing accurate, but skip checkpoint writes to save disk
         torch.cuda.synchronize()
         training_time_ms += 1000 * (time.time() - t0)
-        # save the state of the training process
-        log = dict(step=step, code=code, model=raw_model.state_dict(), optimizers=[opt.state_dict() for opt in optimizers])
-        # also save the seed for reproducibility
-        if args.seed is not None:
-            log['seed'] = args.seed
-        # save token weighting config
-        if tw_config.enabled:
-            log['tw_config'] = {
-                'function': tw_config.function,
-                'clamp_min': tw_config.clamp_min,
-                'clamp_max': tw_config.clamp_max,
-                'schedule': tw_config.schedule,
-            }
-        torch.save(log, 'logs/%s/state_step%06d.pt' % (run_id, step))
-        # start the clock again
+        if master_process:
+            print("Checkpoint saving disabled; skipping state serialization.")
         torch.cuda.synchronize()
         t0 = time.time()
 
