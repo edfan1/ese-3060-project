@@ -119,20 +119,20 @@ class ExperimentConfig:
 # =============================================================================
 
 # Standard seeds for reproducibility
-SEEDS = [42, 123, 456, 789, 1024]
+SEEDS = [42, 123, 456, 789]
 
 # Iteration counts for different stages
 ITERATIONS = {
     'screening': 500,
-    'medium': 2000,
-    'full': 5100,
+    'medium': 1500,
+    'full': 3000,
 }
 
 
 def generate_phase1_experiments() -> List[ExperimentConfig]:
-    """Phase 1: Baseline establishment (3-5 seeds, full runs)."""
+    """Phase 1: Baseline establishment (3-4 seeds, full runs)."""
     experiments = []
-    for seed in SEEDS[:5]:  # Use all 5 seeds for baseline
+    for seed in SEEDS[:4]:  # Use all 4 seeds for baseline
         experiments.append(ExperimentConfig(
             name=f"baseline_seed{seed}",
             description=f"Baseline run without token weighting (seed={seed})",
@@ -394,12 +394,12 @@ def generate_phase5_experiments(
     """
     Phase 5: Final validation with best configuration.
     
-    Run 5 seeds for strong statistical confidence.
+    Run 4 seeds for strong statistical confidence.
     """
     experiments = []
     best_schedule_params = best_schedule_params or {}
     
-    for seed in SEEDS[:5]:
+    for seed in SEEDS[:4]:
         config = ExperimentConfig(
             name=f"p5_best_seed{seed}",
             description=f"Best configuration: {best_function} + {best_schedule}",
