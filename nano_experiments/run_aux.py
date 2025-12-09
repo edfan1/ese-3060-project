@@ -242,7 +242,7 @@ def get_deep_dive_experiments(best_layer_config: str) -> Dict[str, ExperimentCon
 
 def get_all_experiments() -> Dict[str, ExperimentConfig]:
     """
-    LEGACY: Define all experiments for manual ablation study
+    Define all experiments for ablation studies, includes legacy experiments
     
     Returns a dictionary mapping experiment names to their configurations.
     """
@@ -419,6 +419,10 @@ def get_all_experiments() -> Dict[str, ExperimentConfig]:
         num_iterations=500,
         val_loss_every=50,
     )
+    
+    experiments = experiments | get_screening_experiments()
+    experiments = experiments | get_layer_position_experiments()
+    experiments = experiments | get_deep_dive_experiments()
     
     return experiments
 
