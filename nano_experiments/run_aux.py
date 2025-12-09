@@ -103,7 +103,7 @@ class ExperimentConfig:
 
 def get_screening_experiments() -> Dict[str, ExperimentConfig]:
     """
-    Stage 1: Quick validation experiments (500 iters, ~3 min each)
+    Stage 1: Quick validation experiments (1000 iters, ~3 min each)
     """
     experiments = {}
     
@@ -114,7 +114,7 @@ def get_screening_experiments() -> Dict[str, ExperimentConfig]:
         aux_loss_schedule="constant",
         description="Screening baseline (1000 iters)",
         phase="screening",
-        num_iterations=500,
+        num_iterations=1000,
         val_loss_every=50,
     )
     
@@ -125,7 +125,7 @@ def get_screening_experiments() -> Dict[str, ExperimentConfig]:
         aux_loss_schedule="constant",
         description="Quick test: single aux head at middle layer",
         phase="screening",
-        num_iterations=500,
+        num_iterations=1000,
         val_loss_every=50,
     )
     
@@ -136,7 +136,7 @@ def get_screening_experiments() -> Dict[str, ExperimentConfig]:
         aux_loss_schedule="constant",
         description="Quick test: original hypothesis [4,8]",
         phase="screening",
-        num_iterations=500,
+        num_iterations=1000,
         val_loss_every=50,
     )
     
@@ -147,7 +147,7 @@ def get_screening_experiments() -> Dict[str, ExperimentConfig]:
         aux_loss_schedule="constant",
         description="Quick test: three heads distributed",
         phase="screening",
-        num_iterations=500,
+        num_iterations=1000,
         val_loss_every=50,
     )
     return experiments
