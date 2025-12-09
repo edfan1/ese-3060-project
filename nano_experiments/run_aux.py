@@ -60,6 +60,8 @@ from typing import List, Dict, Optional, Any
 from pathlib import Path
 import shutil
 
+DEFAULT_SEEDS = [42, 1337, 2603, 4242, 7777]
+
 # =============================================================================
 # Experiment Configuration
 # =============================================================================
@@ -104,7 +106,7 @@ class ExperimentResult:
     """Results from a single experiment run."""
     experiment_name: str
     run_id: int
-    log_seed: int
+    seed: int
     config: Dict[str, Any]
     final_val_loss: float
     final_train_loss: float
@@ -260,10 +262,12 @@ class ExperimentRunner:
         output_dir: str = "experiments",
         num_gpus: int = 8,
         train_script: str = "aux_train_gpt.py",
+        seeds: Optional[List[int]] = None,
     ):
         self.output_dir = Path(output_dir)
         self.num_gpus = num_gpus
         self.train_script = train_script
+        self.seeds = seeds if seeds else DEFAULT_SEEDS
         self.experiments = get_all_experiments()
         self.results = []
         
@@ -285,18 +289,16 @@ class ExperimentRunner:
             raise ValueError(f"Unknown experiment: {experiment_name}")
         
         config = self.experiments[experiment_name]
-        # Generate a random seed for logging purposes only
-        import random
-        log_seed = random.randint(0, 2**31 - 1)
+        seed = self.seeds[run_id % len(self.seeds)]
         
         print(f"\n{'='*60}")
         print(f"Running: {experiment_name} (run {run_id})")
         print(f"Description: {config.description}")
-        print(f"Log seed: {log_seed}")
+        print(f"Seed: {seed}")
         print(f"{'='*60}")
         
         # Create modified training script
-        modified_script = self._create_modified_script(config)
+        modified_script = self._create_modified_script(config, seed)
         
         # Build torchrun command
         cmd = [
@@ -307,14 +309,13 @@ class ExperimentRunner:
         ]
         
         print(f"Command: {' '.join(cmd)}")
-
         # Create experiment-specific output directory
         exp_dir = self.run_dir / experiment_name / f"run_{run_id}"
         exp_dir.mkdir(parents=True, exist_ok=True)
         
         # Save config
         config_dict = asdict(config)
-        config_dict["log_seed"] = log_seed
+        config_dict["seed"] = seed
         with open(exp_dir / "config.json", "w") as f:
             json.dump(config_dict, f, indent=2)
         
@@ -341,16 +342,10 @@ class ExperimentRunner:
                 except subprocess.TimeoutExpired:
                     success = False
                     error_message = "Experiment timed out after 2 hours"
-                    # Kill the entire process group
-                    print("  Timeout! Killing process tree...")
-                    kill_process_tree(process.pid)
             
         except Exception as e:
             success = False
             error_message = str(e)
-            if process and process.poll() is None:
-                print(f"  Exception! Killing process tree: {e}")
-                kill_process_tree(process.pid)
         finally:
             # Clean up modified script
             if modified_script.exists():
@@ -373,7 +368,7 @@ class ExperimentRunner:
         result = ExperimentResult(
             experiment_name=experiment_name,
             run_id=run_id,
-            log_seed=log_seed,
+            seed=seed,
             config=config_dict,
             final_val_loss=parsed.get("final_val_loss", float("nan")),
             final_train_loss=parsed.get("final_train_loss", float("nan")),
@@ -404,7 +399,7 @@ class ExperimentRunner:
         
         return result
     
-    def _create_modified_script(self, config: ExperimentConfig) -> Path:
+    def _create_modified_script(self, config: ExperimentConfig, seed: int) -> Path:
         """
         Create a modified version of the training script with experiment parameters.
         The clean script uses a Hyperparameters dataclass at module level, so we modify it.
@@ -425,6 +420,7 @@ class ExperimentRunner:
                 modifications.append(f'args.{key} = "{value}"')
             else:
                 modifications.append(f'args.{key} = {value}')
+        modifications.append(f'args.seed = {seed}')
         
         mod_block = '\n'.join(modifications)
         
@@ -571,9 +567,10 @@ class StagedAblationRunner(ExperimentRunner):
         output_dir: str = "experiments",
         num_gpus: int = 8,
         train_script: str = "aux_train_gpt.py",
+        seeds: Optional[List[int]] = None,
         max_budget_hours: float = 7.0,
     ):
-        super().__init__(output_dir, num_gpus, train_script)
+        super().__init__(output_dir, num_gpus, train_script, seeds)
         
         self.max_budget_hours = max_budget_hours
         self.budget_used_hours = 0.0
@@ -882,12 +879,19 @@ def main():
                        help="Output directory for results")
     parser.add_argument("--train_script", type=str, default="aux_train_gpt.py",
                        help="Path to training script")
+    parser.add_argument("--seeds", type=str,
+                       help="Comma-separated list of seeds")
     parser.add_argument("--max_budget_hours", type=float, default=7.0,
                        help="Maximum compute budget in hours")
     parser.add_argument("--list", action="store_true",
                        help="List all available experiments")
     
     args = parser.parse_args()
+    
+    # Parse seeds
+    seed_list = DEFAULT_SEEDS
+    if args.seeds:
+        seed_list = [int(s.strip()) for s in args.seeds.split(',') if s.strip()]
     
     # STAGED ABLATION MODE
     if args.staged or args.stage:
@@ -896,6 +900,7 @@ def main():
             num_gpus=args.num_gpus,
             train_script=args.train_script,
             max_budget_hours=args.max_budget_hours,
+            seeds=seed_list,
         )
         
         if args.stage == 1:
@@ -931,6 +936,7 @@ def main():
         output_dir=args.output_dir,
         num_gpus=args.num_gpus,
         train_script=args.train_script,
+        seeds=seed_list,
     )
     
     if args.list:

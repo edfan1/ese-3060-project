@@ -15,7 +15,6 @@ import glob
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
-import random
 
 import numpy as np
 import torch
@@ -51,6 +50,13 @@ def get_runpod_info():
         'pod_id': os.environ.get('RUNPOD_POD_ID', 'N/A'),
         'gpu_type': os.environ.get('RUNPOD_GPU_TYPE', 'N/A')
     }
+
+def set_seed(seed):
+    """Set random seed for reproducibility."""
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
 
 # -----------------------------------------------------------------------------
 # Muon optimizer
@@ -598,6 +604,8 @@ class Hyperparameters:
     aux_loss_weight : float = 0.1
     aux_loss_schedule : str = 'constant'  # 'constant', 'linear_decay', 'cosine_decay', 'warmup_decay'
     aux_head_zero_init : bool = True
+    # reproducibility
+    seed : int = 42
 
 # Parse auxiliary head layers from string
 args = Hyperparameters()
@@ -610,22 +618,26 @@ git_commit = get_git_commit()
 assert torch.cuda.is_available()
 dist.init_process_group(backend='nccl')
 
+# CRITICAL: Set the CUDA device BEFORE any CUDA operations (including set_seed)
+# This prevents all ranks from initializing on GPU 0 first
 ddp_rank = int(os.environ['RANK'])
 ddp_local_rank = int(os.environ['LOCAL_RANK'])
 ddp_world_size = int(os.environ['WORLD_SIZE'])
 device = f'cuda:{ddp_local_rank}'
 torch.cuda.set_device(device)
 
+# Now it's safe to set seed (which calls torch.cuda.manual_seed_all)
+seed = os.environ.get('SEED', args.seed)
+seed = int(seed) if seed else args.seed
+set_seed(seed)
+
 print(f"using device: {device}")
 master_process = (ddp_rank == 0) # this process will do logging, checkpointing etc.
-
-# Generate a random seed
-log_seed = random.randint(0, 2**31 - 1)
 
 # Print auxiliary head configuration
 if master_process:
     print(f"Auxiliary heads: {aux_head_layers if aux_head_layers else 'None (baseline)'}")
-    print(f"Log seed: {log_seed}, Git commit: {git_commit[:8]}")
+    print(f"Seed: {seed}, Git commit: {git_commit[:8]}")
 
 # convenience variables
 B, T = args.device_batch_size, args.sequence_length
@@ -701,7 +713,7 @@ if master_process:
     
     # create the main log file with comprehensive header
     with open(logfile, "w") as f:
-        write_log_header(f, code, args, aux_head_layers, log_seed, git_commit, ddp_world_size)
+        write_log_header(f, code, args, aux_head_layers, seed, git_commit, ddp_world_size)
     
     # create auxiliary loss log if using auxiliary heads
     if aux_head_layers:
