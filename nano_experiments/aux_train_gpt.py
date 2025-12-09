@@ -481,8 +481,8 @@ class Hyperparameters:
 def parse_args():
     parser = argparse.ArgumentParser(description='Train GPT with optional auxiliary heads')
     # Data hyperparams
-    parser.add_argument('--input_bin', type=str, default='data/fineweb10B/fineweb_train_*.bin')
-    parser.add_argument('--input_val_bin', type=str, default='data/fineweb10B/fineweb_val_*.bin')
+    parser.add_argument('--input_bin', type=str, default='../data/fineweb10B/fineweb_train_*.bin')
+    parser.add_argument('--input_val_bin', type=str, default='../data/fineweb10B/fineweb_val_*.bin')
     # Optimization hyperparams
     parser.add_argument('--batch_size', type=int, default=8*64)
     parser.add_argument('--device_batch_size', type=int, default=64)
