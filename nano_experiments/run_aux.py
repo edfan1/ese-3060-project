@@ -56,12 +56,10 @@ import time
 from datetime import datetime
 from dataclasses import dataclass, field, asdict
 from typing import List, Dict, Optional, Any
-import numpy as np
-DEFAULT_SEEDS = [42, 1337, 2603, 4242, 7777]
-
 from pathlib import Path
 import shutil
 
+DEFAULT_SEEDS = [42, 1337, 2603, 4242, 7777]
 
 # =============================================================================
 # Experiment Configuration
@@ -84,28 +82,49 @@ class ExperimentConfig:
     batch_size: int = 512
     device_batch_size: int = 64
     
-    def to_args(self) -> List[str]:
-        """Convert config to command-line arguments."""
-        args = [
-            f"--num_iterations={self.num_iterations}",
-            f"--val_loss_every={self.val_loss_every}",
-            f"--learning_rate={self.learning_rate}",
-            f"--batch_size={self.batch_size}",
-            f"--device_batch_size={self.device_batch_size}",
-        ]
-        if self.aux_head_layers:
-            args.extend([
-                f"--aux_head_layers={self.aux_head_layers}",
-                f"--aux_loss_weight={self.aux_loss_weight}",
-                f"--aux_loss_schedule={self.aux_loss_schedule}",
-            ])
-        return args
+    def to_script_modifications(self) -> Dict[str, Any]:
+        """
+        Convert config to modifications for the training script.
+        Returns a dict that can be used to modify the Hyperparameters dataclass.
+        """
+        mods = {
+            'num_iterations': self.num_iterations,
+            'val_loss_every': self.val_loss_every,
+            'learning_rate': self.learning_rate,
+            'batch_size': self.batch_size,
+            'device_batch_size': self.device_batch_size,
+            'aux_head_layers': self.aux_head_layers,
+            'aux_loss_weight': self.aux_loss_weight,
+            'aux_loss_schedule': self.aux_loss_schedule,
+        }
+        return mods
 
+
+@dataclass
+class ExperimentResult:
+    """Results from a single experiment run."""
+    experiment_name: str
+    run_id: int
+    seed: int
+    config: Dict[str, Any]
+    final_val_loss: float
+    final_train_loss: float
+    training_time_ms: float
+    step_avg_ms: float
+    log_file: str
+    aux_log_file: Optional[str]
+    success: bool
+    error_message: Optional[str] = None
+    val_loss_history: List[float] = field(default_factory=list)
+    train_loss_history: List[float] = field(default_factory=list)
+
+
+# =============================================================================
+# Experiment Definitions
+# =============================================================================
 
 def get_screening_experiments() -> Dict[str, ExperimentConfig]:
-    """
-    Stage 1: Quick validation experiments (1000 iters, ~3 min each)
-    """
+    """Stage 1: Quick validation experiments (1000 iters, ~3 min each)"""
     experiments = {}
     
     experiments["screen_baseline"] = ExperimentConfig(
@@ -151,17 +170,14 @@ def get_screening_experiments() -> Dict[str, ExperimentConfig]:
         num_iterations=1000,
         val_loss_every=50,
     )
+    
     return experiments
 
 
 def get_layer_position_experiments() -> Dict[str, ExperimentConfig]:
-    """
-    Stage 2: Layer position ablation (full length runs).
-    Identify which layer positions benefit most from aux heads.
-    """
+    """Stage 2: Layer position ablation (full length runs)"""
     experiments = {}
     
-    # Full baseline for statistical reference
     experiments["baseline"] = ExperimentConfig(
         name="baseline",
         aux_head_layers="",
@@ -192,27 +208,11 @@ def get_layer_position_experiments() -> Dict[str, ExperimentConfig]:
         phase="layer_position",
     )
     
-    # Repeat for variance estimation
-    experiments["aux_6_repeat"] = ExperimentConfig(
-        name="aux_6_repeat",
-        aux_head_layers="6",
-        aux_loss_weight=0.1,
-        aux_loss_schedule="constant",
-        description="Repeat aux_6 to estimate variance",
-        phase="layer_position",
-    )
-    
     return experiments
 
 
 def get_deep_dive_experiments(best_layer_config: str) -> Dict[str, ExperimentConfig]:
-    """
-    Stage 3: Deep dive into best configuration from Stage 2.
-    Optimize loss weight and schedule for best layer configuration.
-    
-    Args:
-        best_layer_config: Layer configuration from Stage 2 (e.g., "6" or "4,8")
-    """
+    """Stage 3: Deep dive into best configuration from Stage 2"""
     experiments = {}
     
     # Loss weight ablation
@@ -227,7 +227,7 @@ def get_deep_dive_experiments(best_layer_config: str) -> Dict[str, ExperimentCon
             phase="deep_dive",
         )
     
-    # Loss schedule ablation (using weight=0.1 or best from above)
+    # Loss schedule ablation
     for schedule in ["constant", "linear_decay", "cosine_decay"]:
         experiments[f"dive_{schedule}"] = ExperimentConfig(
             name=f"dive_{schedule}",
@@ -242,18 +242,10 @@ def get_deep_dive_experiments(best_layer_config: str) -> Dict[str, ExperimentCon
 
 
 def get_all_experiments() -> Dict[str, ExperimentConfig]:
-    """
-    Define all experiments for ablation studies, includes legacy experiments.
-    
-    Note: Screening and layer_position experiments are merged in. If there are
-    name collisions, the staged experiments (screening/layer_position) take 
-    precedence since they are merged last.
-    
-    Returns a dictionary mapping experiment names to their configurations.
-    """
+    """Get all experiments including screening and layer position"""
     experiments = {}
-    experiments = experiments | get_screening_experiments()
-    experiments = experiments | get_layer_position_experiments()
+    experiments.update(get_screening_experiments())
+    experiments.update(get_layer_position_experiments())
     return experiments
 
 
@@ -261,32 +253,8 @@ def get_all_experiments() -> Dict[str, ExperimentConfig]:
 # Experiment Runner
 # =============================================================================
 
-@dataclass
-class ExperimentResult:
-    """Results from a single experiment run."""
-    experiment_name: str
-    run_id: int
-    seed: int
-    config: Dict[str, Any]
-    final_val_loss: float
-    final_train_loss: float
-    training_time_ms: float
-    step_avg_ms: float
-    log_file: str
-    aux_log_file: Optional[str]
-    success: bool
-    error_message: Optional[str] = None
-    
-    # Extracted metrics
-    val_loss_history: List[float] = field(default_factory=list)
-    train_loss_history: List[float] = field(default_factory=list)
-
-# =============================================================================
-# Experiment Runner (original class, kept for backward compatibility)
-# =============================================================================
-
 class ExperimentRunner:
-    """Manages running experiments and collecting results."""
+    """Manages and executes ablation experiments."""
     
     def __init__(
         self,
@@ -298,29 +266,16 @@ class ExperimentRunner:
         self.output_dir = Path(output_dir)
         self.num_gpus = num_gpus
         self.train_script = train_script
+        self.seeds = seeds if seeds else DEFAULT_SEEDS
         self.experiments = get_all_experiments()
-        self.seeds = seeds or DEFAULT_SEEDS
+        self.results = []
         
-        # Create output directory with timestamp
-        self.timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.run_dir = self.output_dir / f"aux_heads_{self.timestamp}"
+        # Create run directory with timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.run_dir = self.output_dir / timestamp
         self.run_dir.mkdir(parents=True, exist_ok=True)
-
-        # Persist the seed plan for reproducibility
-        with open(self.run_dir / "seed_plan.json", "w") as f:
-            json.dump({"seeds": self.seeds}, f, indent=2)
         
-        # Results storage
-        self.results: List[ExperimentResult] = []
-        
-        # Save experiment definitions
-        self._save_experiment_definitions()
-    
-    def _save_experiment_definitions(self):
-        """Save all experiment configurations to JSON."""
-        configs = {name: asdict(exp) for name, exp in self.experiments.items()}
-        with open(self.run_dir / "experiment_configs.json", "w") as f:
-            json.dump(configs, f, indent=2)
+        print(f"📁 Experiment directory: {self.run_dir}")
     
     def run_experiment(
         self,
@@ -341,16 +296,19 @@ class ExperimentRunner:
         print(f"Seed: {seed}")
         print(f"{'='*60}")
         
-        # Build command
+        # Create modified training script
+        modified_script = self._create_modified_script(config, seed)
+        
+        # Build torchrun command
         cmd = [
             "torchrun",
             "--standalone",
             f"--nproc_per_node={self.num_gpus}",
-            self.train_script,
-        ] + config.to_args() + [f"--seed={seed}"]
+            str(modified_script),
+        ]
         
         print(f"Command: {' '.join(cmd)}")
-
+        
         # Create experiment-specific output directory
         exp_dir = self.run_dir / experiment_name / f"run_{run_id}"
         exp_dir.mkdir(parents=True, exist_ok=True)
@@ -364,9 +322,6 @@ class ExperimentRunner:
         # Run experiment
         log_file = exp_dir / "output.log"
         start_time = time.time()
-
-        env = os.environ.copy()
-        env["SEED"] = str(seed)
         
         try:
             with open(log_file, "w") as f:
@@ -374,7 +329,6 @@ class ExperimentRunner:
                     cmd,
                     stdout=f,
                     stderr=subprocess.STDOUT,
-                    env=env,
                     timeout=7200,  # 2 hour timeout
                 )
             
@@ -387,6 +341,10 @@ class ExperimentRunner:
         except Exception as e:
             success = False
             error_message = str(e)
+        finally:
+            # Clean up modified script
+            if modified_script.exists():
+                modified_script.unlink()
         
         elapsed_time = time.time() - start_time
         
@@ -426,7 +384,7 @@ class ExperimentRunner:
         self.results.append(result)
         
         # Print summary
-        print(f"\nResult: {'SUCCESS' if success else 'FAILED'}")
+        print(f"\nResult: {'✓ SUCCESS' if success else '✗ FAILED'}")
         if success:
             print(f"  Final val loss: {result.final_val_loss:.4f}")
             print(f"  Training time: {result.training_time_ms/1000:.1f}s")
@@ -435,6 +393,48 @@ class ExperimentRunner:
             print(f"  Error: {error_message}")
         
         return result
+    
+    def _create_modified_script(self, config: ExperimentConfig, seed: int) -> Path:
+        """
+        Create a modified version of the training script with experiment parameters.
+        The clean script uses a Hyperparameters dataclass at module level, so we modify it.
+        """
+        # Read the original script
+        with open(self.train_script, 'r') as f:
+            script_content = f.read()
+        
+        # Create modifications for the Hyperparameters dataclass
+        mods = config.to_script_modifications()
+        
+        # Find the Hyperparameters initialization and modify it
+        # We'll add modifications right after "args = Hyperparameters()"
+        
+        modifications = []
+        for key, value in mods.items():
+            if isinstance(value, str):
+                modifications.append(f'args.{key} = "{value}"')
+            else:
+                modifications.append(f'args.{key} = {value}')
+        modifications.append(f'args.seed = {seed}')
+        
+        mod_block = '\n'.join(modifications)
+        
+        # Insert modifications after "args = Hyperparameters()"
+        marker = "args = Hyperparameters()"
+        if marker in script_content:
+            script_content = script_content.replace(
+                marker,
+                f"{marker}\n# Experiment modifications\n{mod_block}\n"
+            )
+        else:
+            raise ValueError(f"Could not find '{marker}' in training script")
+        
+        # Write modified script
+        modified_path = self.run_dir / f"modified_script_{config.name}.py"
+        with open(modified_path, 'w') as f:
+            f.write(script_content)
+        
+        return modified_path
     
     def _parse_log_file(self, log_file: Path) -> Dict[str, Any]:
         """Parse experiment output log to extract metrics."""
@@ -451,7 +451,6 @@ class ExperimentRunner:
         
         for line in lines:
             # Parse validation loss lines
-            # Format: step:X/Y val_loss:Z.ZZZZ train_time:Xms step_avg:Yms
             if "val_loss:" in line and "step:" in line:
                 try:
                     parts = line.strip().split()
@@ -468,7 +467,6 @@ class ExperimentRunner:
                     pass
             
             # Parse training loss lines
-            # Format: step:X/Y train_loss:Z.ZZZZ ...
             elif "train_loss:" in line and "val_loss" not in line:
                 try:
                     parts = line.strip().split()
@@ -493,6 +491,11 @@ class ExperimentRunner:
         if not txt_files:
             return None, None
         
+        # Exclude aux logs from main search
+        txt_files = [f for f in txt_files if not f.name.endswith("_aux.txt")]
+        if not txt_files:
+            return None, None
+        
         latest = max(txt_files, key=lambda p: p.stat().st_mtime)
         
         # Check for corresponding aux log
@@ -500,11 +503,7 @@ class ExperimentRunner:
         
         return str(latest), str(aux_log) if aux_log.exists() else None
     
-    def run_phase(
-        self,
-        phase: str,
-        num_runs: int = 1,
-    ) -> List[ExperimentResult]:
+    def run_phase(self, phase: str, num_runs: int = 1) -> List[ExperimentResult]:
         """Run all experiments in a phase."""
         
         phase_experiments = [
@@ -530,78 +529,9 @@ class ExperimentRunner:
         
         return results
     
-    def run_all(
-        self,
-        num_runs: int = 1,
-        phases: Optional[List[str]] = None,
-    ) -> List[ExperimentResult]:
-        """Run all experiments or specified phases."""
-        
-        if phases is None:
-            # Default order for systematic ablation
-            phases = [
-                "baseline",
-                "layer_position",
-                "num_heads",
-                "loss_weight",
-                "loss_schedule",
-            ]
-        
-        results = []
-        for phase in phases:
-            phase_results = self.run_phase(phase, num_runs)
-            results.extend(phase_results)
-        
-        # Save all results
-        self._save_all_results()
-        
-        return results
-    
-    def _save_all_results(self):
-        """Save all collected results."""
-        results_file = self.run_dir / "all_results.json"
-        with open(results_file, "w") as f:
-            json.dump([asdict(r) for r in self.results], f, indent=2)
-        
-        # Generate summary
-        self._generate_summary()
-    
-    def _generate_summary(self):
-        """Generate a summary report of all results."""
-        summary_file = self.run_dir / "summary.txt"
-        
-        with open(summary_file, "w") as f:
-            f.write("="*80 + "\n")
-            f.write("AUXILIARY HEAD EXPERIMENT SUMMARY\n")
-            f.write(f"Generated: {datetime.now().isoformat()}\n")
-            f.write("="*80 + "\n\n")
-            
-            # Group by phase
-            phases = {}
-            for result in self.results:
-                phase = self.experiments[result.experiment_name].phase
-                if phase not in phases:
-                    phases[phase] = []
-                phases[phase].append(result)
-            
-            for phase, results in phases.items():
-                f.write(f"\n## Phase: {phase}\n")
-                f.write("-"*60 + "\n")
-                f.write(f"{'Experiment':<25} {'Val Loss':>10} {'Time(s)':>10} {'Status':>10}\n")
-                f.write("-"*60 + "\n")
-                
-                for r in results:
-                    status = "OK" if r.success else "FAIL"
-                    f.write(f"{r.experiment_name:<25} {r.final_val_loss:>10.4f} "
-                           f"{r.training_time_ms/1000:>10.1f} {status:>10}\n")
-            
-            f.write("\n" + "="*80 + "\n")
-        
-        print(f"\nSummary saved to: {summary_file}")
-    
     def list_experiments(self):
         """Print all available experiments."""
-        print("\nAvailable Experiments:")
+        print("\n📋 Available Experiments:")
         print("="*80)
         
         # Group by phase
@@ -617,13 +547,15 @@ class ExperimentRunner:
             for name, exp in sorted(exps):
                 layers = exp.aux_head_layers if exp.aux_head_layers else "none"
                 print(f"  {name:<25} layers={layers:<12} w={exp.aux_loss_weight}")
-                print(f"    â””â”€ {exp.description}")
+                print(f"    └─ {exp.description}")
+
+
+# =============================================================================
+# Staged Ablation Runner
+# =============================================================================
 
 class StagedAblationRunner(ExperimentRunner):
-    """
-    Runs experiments in stages with manual or automatic decision points.
-    Optimized for limited compute budget.
-    """
+    """Runs experiments in stages with decision points."""
     
     def __init__(
         self,
@@ -633,23 +565,16 @@ class StagedAblationRunner(ExperimentRunner):
         seeds: Optional[List[int]] = None,
         max_budget_hours: float = 7.0,
     ):
-        # Initialize the parent class with required arguments
-        super().__init__(
-            output_dir=output_dir,
-            num_gpus=num_gpus,
-            train_script=train_script,
-            seeds=seeds,
-        )
+        super().__init__(output_dir, num_gpus, train_script, seeds)
         
-        # Now initialize StagedAblationRunner specific attributes
         self.max_budget_hours = max_budget_hours
         self.budget_used_hours = 0.0
         self.stage_results = {}
         self.best_config = None
-
-        # Add state file for persistence between manual runs
+        
+        # State file for persistence
         self.state_file = self.run_dir / "ablation_state.json"
-        self._load_state()    
+        self._load_state()
     
     def _load_state(self):
         """Load state from previous runs."""
@@ -659,7 +584,7 @@ class StagedAblationRunner(ExperimentRunner):
                 self.budget_used_hours = state.get("budget_used_hours", 0.0)
                 self.stage_results = state.get("stage_results", {})
                 self.best_config = state.get("best_config")
-                print(f"📂 Loaded state: {self.budget_used_hours:.2f}h used, stage {len(self.stage_results)} complete")
+                print(f"📂 Loaded state: {self.budget_used_hours:.2f}h used")
     
     def _save_state(self):
         """Save state for resuming later."""
@@ -672,295 +597,164 @@ class StagedAblationRunner(ExperimentRunner):
         with open(self.state_file, "w") as f:
             json.dump(state, f, indent=2, default=str)
         print(f"💾 State saved: {self.budget_used_hours:.2f}h used")
-
+    
     def estimate_time_hours(self, num_iterations: int, num_runs: int = 1) -> float:
         """Estimate time in hours for experiments."""
         # Full run (5100 iters) takes ~15 min = 0.25 hours
-        # Time scales roughly linearly with iterations
         time_per_run = (num_iterations / 5100) * 0.25
         return time_per_run * num_runs
     
-    def check_budget(self, estimated_hours: float) -> bool:
-        """Check if we have enough budget remaining (informational only)."""
-        if self.budget_used_hours + estimated_hours > self.max_budget_hours:
-            print(f"\n⚠️  Budget will exceed limit: {self.budget_used_hours + estimated_hours:.2f}h > {self.max_budget_hours:.2f}h")
-            print(f"   Continuing anyway...")
-        return True
-    
     def run_stage_1_screening(self) -> Dict[str, Any]:
-        """
-        Stage 1: Quick validation (1 hour, ~4 runs @ 1000 iters each).
-        
-        Decision criteria:
-        - If ANY aux config shows >2% improvement in val loss trajectory, proceed
-        - Otherwise, hypothesis likely invalid, reconsider approach
-        
-        Returns:
-            Dict with stage results and decision to proceed
-        """
-        print("\n" + "="*70)
+        """Stage 1: Quick validation (1 hour, ~4 runs @ 1000 iters each)"""
+        print("\n" + "="*80)
         print("STAGE 1: QUICK VALIDATION")
-        print("="*70)
-        print("Budget: ~1 hour (4 experiments @ 1000 iters each)")
-        print("Goal: Verify hypothesis has merit before full compute commitment")
-        print()
+        print("="*80)
         
-        experiments = get_screening_experiments()
-        estimated_time = self.estimate_time_hours(1000, num_runs=len(experiments))
-        
-        # Display estimated time (no interruption)
-        print(f"Estimated time: {estimated_time:.2f}h")
-        print(f"Current budget used: {self.budget_used_hours:.2f}h / {self.max_budget_hours:.2f}h\n")
-        
-        # Run screening experiments
+        screening_exps = get_screening_experiments()
         results = []
-        for exp_name in sorted(experiments.keys()):
+        
+        for exp_name in screening_exps:
             result = self.run_experiment(exp_name, run_id=0)
             results.append(result)
-        
-        self.budget_used_hours += estimated_time
-        baseline_loss = next(r.final_val_loss for r in results if r.experiment_name == "screen_baseline")
-        aux_results = [(r.experiment_name, r.final_val_loss) for r in results if "aux" in r.experiment_name]
-        
-        best_aux_name, best_aux_loss = min(aux_results, key=lambda x: x[1])
-        improvement = (baseline_loss - best_aux_loss) / baseline_loss * 100
-        
-        print(f"\n📊 STAGE 1 RESULTS:")
-        print(f"  Baseline loss: {baseline_loss:.4f}")
-        print(f"  Best aux loss: {best_aux_loss:.4f} ({best_aux_name})")
-        print(f"  Improvement: {improvement:+.2f}%")
-        
-        # Decision
-        proceed = improvement > 2.0  # Require >2% improvement to proceed
-        
-        if proceed:
-            print(f"\n✅ DECISION: PROCEED to Stage 2")
-            print(f"  Aux heads show promise ({improvement:.2f}% improvement)")
-        else:
-            print(f"\n❌ DECISION: STOP")
-            print(f"  Insufficient improvement ({improvement:.2f}% < 2.0%)")
-            print(f"  Hypothesis may not be valid for this architecture")
-        
-        return {
-            "proceed": proceed,
-            "improvement_pct": improvement,
-            "best_screening_config": best_aux_name,
-            "baseline_loss": baseline_loss,
-            "best_aux_loss": best_aux_loss,
-            "results": results,
-        }
-    
-    def run_stage_2_layer_position(self, baseline_only: bool = False) -> Dict[str, Any]:
-        """
-        Stage 2: Layer position screening (1.5 hours, ~6 full runs).
-        
-        Args:
-            baseline_only: If True, only run baseline for comparison
-        
-        Decision criteria:
-        - Identify best performing layer configuration
-        - Estimate variance from repeated run
-        
-        Returns:
-            Dict with best layer configuration
-        """
-        print("\n" + "="*70)
-        print("STAGE 2: LAYER POSITION SCREENING")
-        print("="*70)
-        print("Budget: ~1.5 hours (6 full-length experiments)")
-        print("Goal: Identify which layer positions benefit most")
-        print()
-        
-        experiments = get_layer_position_experiments()
-        
-        # Allow running only baseline if needed
-        if baseline_only:
-            experiments = {k: v for k, v in experiments.items() if k == "baseline"}
-        
-        estimated_time = self.estimate_time_hours(5100, num_runs=len(experiments))
-        
-        # Display estimated time (no interruption)
-        print(f"Estimated time: {estimated_time:.2f}h")
-        print(f"Current budget used: {self.budget_used_hours:.2f}h / {self.max_budget_hours:.2f}h\n")
-        
-        # Run experiments
-        results = []
-        for exp_name in sorted(experiments.keys()):
-            result = self.run_experiment(exp_name, run_id=0)
-            results.append(result)
-        
-        self.budget_used_hours += estimated_time
         
         # Analyze results
-        baseline_result = next((r for r in results if r.experiment_name == "baseline"), None)
-        if not baseline_result:
-            print("⚠️  No baseline found - run with baseline_only=False first")
-            return {"proceed": False, "reason": "No baseline"}
+        baseline = next(r for r in results if r.experiment_name == "screen_baseline")
+        aux_results = [r for r in results if r.experiment_name != "screen_baseline"]
         
-        aux_results = [(r.experiment_name, r.final_val_loss, r.training_time_ms) 
-                       for r in results if "aux" in r.experiment_name and "repeat" not in r.experiment_name]
+        best_improvement = 0
+        best_config = None
         
-        if aux_results:
-            best_name, best_loss, best_time = min(aux_results, key=lambda x: x[1])
-            
-            # Extract layer config from best experiment
-            best_config = get_layer_position_experiments()[best_name]
-            best_layers = best_config.aux_head_layers
-            
-            # Avoid division by zero
-            if baseline_result.final_val_loss > 0:
-                improvement = (baseline_result.final_val_loss - best_loss) / baseline_result.final_val_loss * 100
-            else:
-                improvement = 0.0
-            time_delta = (best_time - baseline_result.training_time_ms) / 1000  # seconds
-            
-            print(f"\n📊 STAGE 2 RESULTS:")
-            print(f"  Baseline: {baseline_result.final_val_loss:.4f} ({baseline_result.training_time_ms/1000:.1f}s)")
-            print(f"  Best config: {best_name}")
-            print(f"    Loss: {best_loss:.4f} ({improvement:+.2f}%)")
-            print(f"    Time: {best_time/1000:.1f}s ({time_delta:+.1f}s)")
-            print(f"    Layers: {best_layers}")
-            
-            self.best_config = best_layers
-        else:
-            best_layers = None
-            improvement = 0
-            
-        # Estimate variance from repeat experiment
-        repeat_name = "aux_6_repeat"
-        if repeat_name in [r.experiment_name for r in results]:
-            repeat_loss = next(r.final_val_loss for r in results if r.experiment_name == repeat_name)
-            original_loss = next((r.final_val_loss for r in results if r.experiment_name == "aux_6"), None)
-            if original_loss:
-                variance_est = abs(repeat_loss - original_loss)
-                print(f"\n  Variance estimate (aux_6 vs repeat): {variance_est:.4f}")
+        for r in aux_results:
+            if r.success and baseline.success:
+                improvement = (baseline.final_val_loss - r.final_val_loss) / baseline.final_val_loss * 100
+                print(f"{r.experiment_name}: {improvement:+.2f}% vs baseline")
+                if improvement > best_improvement:
+                    best_improvement = improvement
+                    best_config = r.experiment_name
+        
+        proceed = best_improvement > 2.0
         
         stage_result = {
-            "proceed": True,
-            "best_layers": best_layers,
-            "best_name": best_name if aux_results else None,
-            "improvement_pct": improvement,
-            "time_delta_s": time_delta if aux_results else 0,
             "results": results,
+            "best_improvement_pct": best_improvement,
+            "best_config": best_config,
+            "decision": "proceed" if proceed else "stop",
         }
+        
+        self.stage_results["stage1"] = stage_result
+        self._save_state()
+        
+        print(f"\n{'='*80}")
+        print(f"STAGE 1 DECISION: {'✓ PROCEED' if proceed else '✗ STOP'}")
+        print(f"Best improvement: {best_improvement:.2f}%")
+        print(f"{'='*80}\n")
+        
+        return stage_result
+    
+    def run_stage_2_layer_position(self, baseline_only: bool = False) -> Dict[str, Any]:
+        """Stage 2: Layer position ablation"""
+        print("\n" + "="*80)
+        print("STAGE 2: LAYER POSITION SCREENING")
+        print("="*80)
+        
+        layer_exps = get_layer_position_experiments()
+        results = []
+        
+        if baseline_only:
+            result = self.run_experiment("baseline", run_id=0)
+            results.append(result)
+        else:
+            for exp_name in layer_exps:
+                result = self.run_experiment(exp_name, run_id=0)
+                results.append(result)
+        
+        if not baseline_only:
+            # Analyze results
+            baseline = next(r for r in results if r.experiment_name == "baseline")
+            aux_results = [r for r in results if r.experiment_name != "baseline"]
+            
+            best_improvement = 0
+            best_layers = None
+            
+            for r in aux_results:
+                if r.success and baseline.success:
+                    improvement = (baseline.final_val_loss - r.final_val_loss) / baseline.final_val_loss * 100
+                    print(f"{r.experiment_name}: {improvement:+.2f}% vs baseline")
+                    if improvement > best_improvement:
+                        best_improvement = improvement
+                        best_layers = self.experiments[r.experiment_name].aux_head_layers
+            
+            print(f"\n{'='*80}")
+            print(f"STAGE 2 RESULT: Best layers = {best_layers}")
+            print(f"Best improvement: {best_improvement:.2f}%")
+            print(f"{'='*80}\n")
+            
+            stage_result = {
+                "results": results,
+                "best_layers": best_layers,
+                "best_improvement_pct": best_improvement,
+            }
+        else:
+            stage_result = {
+                "results": results,
+                "baseline_only": True,
+            }
         
         self.stage_results["stage2"] = stage_result
         self._save_state()
         
         return stage_result
     
-    def run_stage_3_deep_dive(self, best_layers: Optional[str] = None, 
-                              weight_only: bool = False,
-                              schedule_only: bool = False) -> Dict[str, Any]:
-        """
-        Stage 3: Targeted deep dive (2.5 hours, ~10 runs).
+    def run_stage_3_deep_dive(
+        self,
+        best_layers: Optional[str] = None,
+        weight_only: bool = False,
+        schedule_only: bool = False,
+    ) -> Dict[str, Any]:
+        """Stage 3: Deep dive into best configuration"""
+        print("\n" + "="*80)
+        print("STAGE 3: DEEP DIVE OPTIMIZATION")
+        print("="*80)
         
-        Args:
-            best_layers: Best layer configuration (uses saved state if None)
-            weight_only: Only run weight ablation experiments
-            schedule_only: Only run schedule ablation experiments
-        
-        Returns:
-            Dict with optimized configuration
-        """
-        # Use saved state if no layers provided
         if best_layers is None:
-            if self.best_config:
-                best_layers = self.best_config
-            elif "stage2" in self.stage_results:
+            if "stage2" in self.stage_results:
                 best_layers = self.stage_results["stage2"].get("best_layers")
-            
-            if not best_layers:
-                print("⚠️  No best_layers found. Please provide or run Stage 2 first.")
-                return {"proceed": False, "reason": "No best_layers"}
+            if best_layers is None:
+                raise ValueError("No best_layers provided and no stage2 results found")
         
-        print("\n" + "="*70)
-        print("STAGE 3: TARGETED DEEP DIVE")
-        print("="*70)
-        print(f"Budget: ~2.5 hours (10 full-length experiments)")
-        print(f"Goal: Optimize loss weight and schedule for layers [{best_layers}]")
-        print()
+        print(f"Using best layers from Stage 2: {best_layers}")
         
-        experiments = get_deep_dive_experiments(best_layers)
-        
-        # Filter experiments based on flags
-        if weight_only:
-            experiments = {k: v for k, v in experiments.items() if "dive_w" in k}
-        elif schedule_only:
-            experiments = {k: v for k, v in experiments.items() if "dive_" in k and "w" not in k}
-        
-        # Add validation runs if running full set
-        if not weight_only and not schedule_only:
-            for i in range(4):
-                experiments[f"validation_{i}"] = ExperimentConfig(
-                    name=f"validation_{i}",
-                    aux_head_layers=best_layers,
-                    aux_loss_weight=0.1,
-                    aux_loss_schedule="constant",
-                    description=f"Validation run {i} of current best",
-                    phase="deep_dive",
-                )
-        
-        estimated_time = self.estimate_time_hours(5100, num_runs=len(experiments))
-        
-        # Display estimated time (no interruption)
-        print(f"Estimated time: {estimated_time:.2f}h")
-        print(f"Current budget used: {self.budget_used_hours:.2f}h / {self.max_budget_hours:.2f}h\n")
-        
-        # Run experiments
+        dive_exps = get_deep_dive_experiments(best_layers)
         results = []
-        for exp_name in sorted(experiments.keys()):
+        
+        for exp_name, exp in dive_exps.items():
+            # Skip based on flags
+            if weight_only and not exp_name.startswith("dive_w"):
+                continue
+            if schedule_only and not exp_name.startswith("dive_") or exp_name.startswith("dive_w"):
+                continue
+            
             result = self.run_experiment(exp_name, run_id=0)
             results.append(result)
         
-        self.budget_used_hours += estimated_time
-
-        # Analyze results
-        weight_results = [(r.experiment_name, r.final_val_loss) 
-                          for r in results if "dive_w" in r.experiment_name]
-        schedule_results = [(r.experiment_name, r.final_val_loss) 
-                            for r in results if "dive_" in r.experiment_name and "w" not in r.experiment_name]
-        validation_results = [r.final_val_loss for r in results if "validation" in r.experiment_name]
+        # Find best configuration
+        best_result = min(results, key=lambda r: r.final_val_loss if r.success else float('inf'))
+        best_exp = self.experiments[best_result.experiment_name]
         
-        best_weight_name, best_weight_loss = min(weight_results, key=lambda x: x[1]) if weight_results else (None, None)
-        best_schedule_name, best_schedule_loss = min(schedule_results, key=lambda x: x[1]) if schedule_results else (None, None)
+        self.best_config = {
+            "layers": best_exp.aux_head_layers,
+            "weight": best_exp.aux_loss_weight,
+            "schedule": best_exp.aux_loss_schedule,
+        }
         
-        print(f"\n📊 STAGE 3 RESULTS:")
-        if best_weight_name:
-            print(f"  Best weight config: {best_weight_name} ({best_weight_loss:.4f})")
-        if best_schedule_name:
-            print(f"  Best schedule config: {best_schedule_name} ({best_schedule_loss:.4f})")
-        if validation_results:
-            val_mean = np.mean(validation_results)
-            val_std = np.std(validation_results)
-            print(f"  Validation runs: {val_mean:.4f} ± {val_std:.4f}")
-        
-        # Determine overall best from this stage
-        all_losses = []
-        if weight_results:
-            all_losses.extend(weight_results)
-        if schedule_results:
-            all_losses.extend(schedule_results)
-        
-        if all_losses:
-            best_overall_name, best_overall_loss = min(all_losses, key=lambda x: x[1])
-            best_config_obj = experiments[best_overall_name]
-            
-            self.best_config = {
-                "layers": best_config_obj.aux_head_layers,
-                "weight": best_config_obj.aux_loss_weight,
-                "schedule": best_config_obj.aux_loss_schedule,
-            }
-            
-            print(f"\n  Overall best: {best_overall_name}")
-            print(f"    Layers: {self.best_config['layers']}")
-            print(f"    Weight: {self.best_config['weight']}")
-            print(f"    Schedule: {self.best_config['schedule']}")
+        print(f"\n{'='*80}")
+        print(f"STAGE 3 RESULT: Best config = {self.best_config}")
+        print(f"Best val loss: {best_result.final_val_loss:.4f}")
+        print(f"{'='*80}\n")
         
         stage_result = {
-            "proceed": True,
-            "best_config": self.best_config,
             "results": results,
+            "best_config": self.best_config,
         }
         
         self.stage_results["stage3"] = stage_result
@@ -968,202 +762,68 @@ class StagedAblationRunner(ExperimentRunner):
         
         return stage_result
     
-    def run_stage_4_final_validation(self, best_config: Dict[str, Any], num_runs: int = 8) -> Dict[str, Any]:
-        """
-        Stage 4: Final validation (2 hours, ~8 runs).
-        
-        Multiple runs of best configuration for statistical significance.
-        
-        Args:
-            best_config: Dict with 'layers', 'weight', 'schedule' keys
-            num_runs: Number of validation runs
-        
-        Returns:
-            Dict with final statistics and significance tests
-        """
-        print("\n" + "="*70)
+    def run_stage_4_final_validation(
+        self,
+        best_config: Optional[Dict] = None,
+        num_runs: int = 8,
+    ) -> Dict[str, Any]:
+        """Stage 4: Final validation with multiple runs"""
+        print("\n" + "="*80)
         print("STAGE 4: FINAL VALIDATION")
-        print("="*70)
-        print(f"Budget: ~2 hours ({num_runs} full-length runs)")
-        print(f"Goal: Statistical significance testing of best configuration")
-        print()
+        print("="*80)
         
-        estimated_time = self.estimate_time_hours(5100, num_runs=num_runs * 2)  # best + baseline
+        if best_config is None:
+            best_config = self.best_config
+        if best_config is None:
+            raise ValueError("No best_config provided and no saved config found")
         
-        # Display estimated time (no interruption)
-        print(f"Estimated time: {estimated_time:.2f}h")
-        print(f"Current budget used: {self.budget_used_hours:.2f}h / {self.max_budget_hours:.2f}h\n")
+        print(f"Running {num_runs} validation runs of: {best_config}")
         
-        # Create experiment configs
-        best_exp = ExperimentConfig(
-            name="final_best",
+        # Create validation experiment
+        val_exp = ExperimentConfig(
+            name="final_validation",
             aux_head_layers=best_config["layers"],
             aux_loss_weight=best_config["weight"],
             aux_loss_schedule=best_config["schedule"],
-            description="Final best configuration",
-            phase="final_validation",
+            description="Final validation of best configuration",
+            phase="validation",
         )
         
-        baseline_exp = ExperimentConfig(
-            name="final_baseline",
-            aux_head_layers="",
-            aux_loss_weight=0.0,
-            aux_loss_schedule="constant",
-            description="Final baseline",
-            phase="final_validation",
-        )
+        self.experiments["final_validation"] = val_exp
         
-        # Save configs temporarily
-        self.experiments["final_best"] = best_exp
-        self.experiments["final_baseline"] = baseline_exp
-        
-        # Run experiments
-        best_results = []
-        baseline_results = []
-        
+        results = []
         for run_id in range(num_runs):
-            print(f"\n--- Run {run_id + 1}/{num_runs} ---")
-            best_result = self.run_experiment("final_best", run_id)
-            baseline_result = self.run_experiment("final_baseline", run_id)
-            best_results.append(best_result)
-            baseline_results.append(baseline_result)
+            result = self.run_experiment("final_validation", run_id)
+            results.append(result)
         
-        self.budget_used_hours += estimated_time
+        # Compute statistics
+        val_losses = [r.final_val_loss for r in results if r.success]
+        if val_losses:
+            import statistics
+            mean_loss = statistics.mean(val_losses)
+            std_loss = statistics.stdev(val_losses) if len(val_losses) > 1 else 0
+            
+            print(f"\n{'='*80}")
+            print(f"STAGE 4 RESULTS:")
+            print(f"  Mean val loss: {mean_loss:.4f} ± {std_loss:.4f}")
+            print(f"  Successful runs: {len(val_losses)}/{num_runs}")
+            print(f"{'='*80}\n")
         
-        # Statistical analysis
-        from scipy import stats as scipy_stats
-        
-        best_losses = [r.final_val_loss for r in best_results if r.success]
-        baseline_losses = [r.final_val_loss for r in baseline_results if r.success]
-        
-        best_times = [r.training_time_ms for r in best_results if r.success]
-        baseline_times = [r.training_time_ms for r in baseline_results if r.success]
-        
-        # T-tests
-        loss_ttest = scipy_stats.ttest_ind(best_losses, baseline_losses)
-        time_ttest = scipy_stats.ttest_ind(best_times, baseline_times)
-        
-        # Effect sizes
-        loss_mean_best = np.mean(best_losses)
-        loss_mean_baseline = np.mean(baseline_losses)
-        # Avoid division by zero
-        if loss_mean_baseline > 0:
-            loss_improvement_pct = (loss_mean_baseline - loss_mean_best) / loss_mean_baseline * 100
-        else:
-            loss_improvement_pct = 0.0
-        
-        time_mean_best = np.mean(best_times) / 1000
-        time_mean_baseline = np.mean(baseline_times) / 1000
-        time_delta = time_mean_best - time_mean_baseline
-        
-        print(f"\n📊 STAGE 4 FINAL RESULTS:")
-        print(f"\n  Best Configuration:")
-        print(f"    Layers: {best_config['layers']}")
-        print(f"    Weight: {best_config['weight']}")
-        print(f"    Schedule: {best_config['schedule']}")
-        print(f"\n  Validation Loss:")
-        print(f"    Baseline: {loss_mean_baseline:.4f} ± {np.std(baseline_losses):.4f}")
-        print(f"    Best:     {loss_mean_best:.4f} ± {np.std(best_losses):.4f}")
-        print(f"    Improvement: {loss_improvement_pct:+.2f}%")
-        print(f"    p-value: {loss_ttest.pvalue:.6f}")
-        print(f"    Significant (p<0.05): {loss_ttest.pvalue < 0.05}")
-        print(f"\n  Training Time:")
-        print(f"    Baseline: {time_mean_baseline:.1f}s ± {np.std(baseline_times)/1000:.1f}s")
-        print(f"    Best:     {time_mean_best:.1f}s ± {np.std(best_times)/1000:.1f}s")
-        print(f"    Delta: {time_delta:+.1f}s")
-        print(f"    p-value: {time_ttest.pvalue:.6f}")
-        
-        # Overall conclusion
-        print(f"\n{'='*70}")
-        if loss_ttest.pvalue < 0.05 and loss_improvement_pct > 0:
-            print(f"✅ CONCLUSION: Auxiliary heads provide SIGNIFICANT improvement")
-            print(f"   Val loss improved by {loss_improvement_pct:.2f}% (p={loss_ttest.pvalue:.4f})")
-        elif loss_improvement_pct > 0:
-            print(f"⚠️  CONCLUSION: Auxiliary heads show improvement but NOT significant")
-            print(f"   Val loss improved by {loss_improvement_pct:.2f}% (p={loss_ttest.pvalue:.4f})")
-            print(f"   May need more runs for statistical power")
-        else:
-            print(f"❌ CONCLUSION: Auxiliary heads do NOT improve performance")
-            print(f"   Val loss changed by {loss_improvement_pct:+.2f}% (p={loss_ttest.pvalue:.4f})")
-        print(f"{'='*70}\n")
-        
-        print(f"\n💰 TOTAL BUDGET USED: {self.budget_used_hours:.2f} / {self.max_budget_hours:.2f} hours")
-        
-        return {
-            "best_config": best_config,
-            "loss_improvement_pct": loss_improvement_pct,
-            "loss_pvalue": loss_ttest.pvalue,
-            "time_delta_s": time_delta,
-            "time_pvalue": time_ttest.pvalue,
-            "best_results": best_results,
-            "baseline_results": baseline_results,
-            "significant": loss_ttest.pvalue < 0.05 and loss_improvement_pct > 0,
+        stage_result = {
+            "results": results,
+            "statistics": {
+                "mean": mean_loss if val_losses else None,
+                "std": std_loss if val_losses else None,
+                "n_success": len(val_losses),
+                "n_total": num_runs,
+            }
         }
-    
-    def run_staged_ablation(self) -> Dict[str, Any]:
-        """
-        Run complete staged ablation with automatic decision points.
         
-        Returns:
-            Dict with results from all stages
-        """
-        print("\n" + "="*80)
-        print("STAGED ABLATION: AUXILIARY PREDICTION HEADS")
-        print("="*80)
-        print(f"Max budget: {self.max_budget_hours:.1f} hours")
-        print(f"Estimated full run time: 0.25 hours")
-        print(f"Maximum total runs: ~{int(self.max_budget_hours / 0.25)}")
-        print("="*80)
+        self.stage_results["stage4"] = stage_result
+        self._save_state()
         
-        all_results = {}
-        
-        # Stage 1: Screening
-        stage1 = self.run_stage_1_screening()
-        all_results["stage1"] = stage1
-        
-        if not stage1["proceed"]:
-            print(f"\n⚠️  Stopping after Stage 1: hypothesis does not show promise")
-            return all_results
-        
-        # Stage 2: Layer Position
-        stage2 = self.run_stage_2_layer_position()
-        all_results["stage2"] = stage2
-        
-        # Stage 3: Deep Dive
-        stage3 = self.run_stage_3_deep_dive(stage2["best_layers"])
-        all_results["stage3"] = stage3
-        
-        # Stage 4: Final Validation
-        stage4 = self.run_stage_4_final_validation(stage3["best_config"])
-        all_results["stage4"] = stage4
-        
-        # Save all results
-        self._save_staged_results(all_results)
-        
-        return all_results
-    
-    def _save_staged_results(self, all_results: Dict[str, Any]):
-        """Save staged ablation results to file."""
-        results_file = self.run_dir / "staged_ablation_results.json"
-        
-        # Convert results to JSON-serializable format
-        serializable = {}
-        for stage, stage_results in all_results.items():
-            serializable[stage] = {}
-            for key, value in stage_results.items():
-                if key == "results" or key.endswith("_results"):
-                    # Convert result objects to dicts
-                    if isinstance(value, list):
-                        serializable[stage][key] = [asdict(r) if hasattr(r, '__dict__') else r for r in value]
-                    else:
-                        serializable[stage][key] = value
-                else:
-                    serializable[stage][key] = value
-        
-        with open(results_file, "w") as f:
-            json.dump(serializable, f, indent=2, default=str)
-        
-        print(f"\n💾 Staged results saved to: {results_file}")
+        return stage_result
+
 
 # =============================================================================
 # Main Entry Point
@@ -1177,128 +837,56 @@ def main():
     )
     
     # Staged ablation mode
-    parser.add_argument(
-        "--staged",
-        action="store_true",
-        help="Run complete staged ablation with automatic decision points",
-    )
-    
-    parser.add_argument(
-        "--stage",
-        type=int,
-        choices=[1, 2, 3, 4],
-        help="Run specific stage manually (1=screening, 2=layer_position, 3=deep_dive, 4=validation)",
-    )
+    parser.add_argument("--staged", action="store_true",
+                       help="Run complete staged ablation")
+    parser.add_argument("--stage", type=int, choices=[1, 2, 3, 4],
+                       help="Run specific stage (1=screening, 2=layer_position, 3=deep_dive, 4=validation)")
     
     # Stage-specific options
-    parser.add_argument(
-        "--best_layers",
-        type=str,
-        help="Best layer configuration for Stage 3 (e.g., '4,8'). Uses saved state if not provided.",
-    )
+    parser.add_argument("--best_layers", type=str,
+                       help="Best layer config for Stage 3 (e.g., '4,8')")
+    parser.add_argument("--best_weight", type=float,
+                       help="Best weight for Stage 4")
+    parser.add_argument("--best_schedule", type=str,
+                       help="Best schedule for Stage 4")
+    parser.add_argument("--baseline_only", action="store_true",
+                       help="Stage 2: Only run baseline")
+    parser.add_argument("--weight_only", action="store_true",
+                       help="Stage 3: Only run weight ablation")
+    parser.add_argument("--schedule_only", action="store_true",
+                       help="Stage 3: Only run schedule ablation")
+    parser.add_argument("--validation_runs", type=int, default=8,
+                       help="Stage 4: Number of validation runs")
     
-    parser.add_argument(
-        "--best_weight",
-        type=float,
-        help="Best weight for Stage 4. Uses saved state if not provided.",
-    )
-    
-    parser.add_argument(
-        "--best_schedule",
-        type=str,
-        help="Best schedule for Stage 4. Uses saved state if not provided.",
-    )
-    
-    parser.add_argument(
-        "--baseline_only",
-        action="store_true",
-        help="Stage 2: Only run baseline experiment",
-    )
-    
-    parser.add_argument(
-        "--weight_only",
-        action="store_true",
-        help="Stage 3: Only run weight ablation experiments",
-    )
-    
-    parser.add_argument(
-        "--schedule_only",
-        action="store_true",
-        help="Stage 3: Only run schedule ablation experiments",
-    )
-    
-    parser.add_argument(
-        "--validation_runs",
-        type=int,
-        default=8,
-        help="Stage 4: Number of validation runs (default: 8)",
-    )
-    
-    parser.add_argument(
-        "--max_budget_hours",
-        type=float,
-        default=7.0,
-        help="Maximum compute budget in hours (default: 7.0)",
-    )
-
     # Legacy mode
-    parser.add_argument(
-        "--phase",
-        type=str,
-        choices=["baseline", "layer_position", "num_heads", "loss_weight", 
-                 "loss_schedule", "best", "quick", "screening", "all"],
-        help="LEGACY: Run all experiments in a specific phase",
-    )
+    parser.add_argument("--phase", type=str,
+                       choices=["screening", "layer_position"],
+                       help="Run all experiments in a phase")
+    parser.add_argument("--experiment", type=str,
+                       help="Run specific experiment by name")
+    parser.add_argument("--runs", type=int, default=1,
+                       help="Number of runs per experiment")
     
-    parser.add_argument(
-        "--experiment",
-        type=str,
-        help="Run a specific experiment by name",
-    )
-    
-    parser.add_argument(
-        "--runs",
-        type=int,
-        default=1,
-        help="Number of runs per experiment (default: 1)",
-    )
-    
-    parser.add_argument(
-        "--num_gpus",
-        type=int,
-        default=8,
-        help="Number of GPUs to use (default: 8)",
-    )
-    
-    parser.add_argument(
-        "--output_dir",
-        type=str,
-        default="experiments",
-        help="Output directory for results (default: experiments)",
-    )
-    
-    parser.add_argument(
-        "--list",
-        action="store_true",
-        help="List all available experiments",
-    )
-
-    parser.add_argument(
-        "--train_script",
-        type=str,
-        default="aux_train_gpt.py",
-        help="Path to training script",
-    )
-    parser.add_argument(
-        "--seeds",
-        type=str,
-        help="Comma-separated list of seeds to cycle through for runs (default: 42,1337,2603,4242,7777)",
-    )
+    # General options
+    parser.add_argument("--num_gpus", type=int, default=8,
+                       help="Number of GPUs to use")
+    parser.add_argument("--output_dir", type=str, default="experiments",
+                       help="Output directory for results")
+    parser.add_argument("--train_script", type=str, default="aux_train_gpt.py",
+                       help="Path to training script")
+    parser.add_argument("--seeds", type=str,
+                       help="Comma-separated list of seeds")
+    parser.add_argument("--max_budget_hours", type=float, default=7.0,
+                       help="Maximum compute budget in hours")
+    parser.add_argument("--list", action="store_true",
+                       help="List all available experiments")
     
     args = parser.parse_args()
-
-    # Parse seeds once so staged and legacy modes share the same plan
-    seed_list = DEFAULT_SEEDS if not args.seeds else [int(s.strip()) for s in args.seeds.split(',') if s.strip()]
+    
+    # Parse seeds
+    seed_list = DEFAULT_SEEDS
+    if args.seeds:
+        seed_list = [int(s.strip()) for s in args.seeds.split(',') if s.strip()]
     
     # STAGED ABLATION MODE
     if args.staged or args.stage:
@@ -1310,12 +898,8 @@ def main():
             seeds=seed_list,
         )
         
-        if args.staged:
-            # Run complete staged ablation
-            runner.run_staged_ablation()
-        elif args.stage == 1:
+        if args.stage == 1:
             runner.run_stage_1_screening()
-            runner._save_state()
         elif args.stage == 2:
             runner.run_stage_2_layer_position(baseline_only=args.baseline_only)
         elif args.stage == 3:
@@ -1325,25 +909,24 @@ def main():
                 schedule_only=args.schedule_only,
             )
         elif args.stage == 4:
-            # Build best config from args or saved state
             if args.best_layers or args.best_weight or args.best_schedule:
                 best_config = {
-                    "layers": args.best_layers or runner.best_config.get("layers") if runner.best_config else None,
-                    "weight": args.best_weight or runner.best_config.get("weight") if runner.best_config else 0.1,
-                    "schedule": args.best_schedule or runner.best_config.get("schedule") if runner.best_config else "constant",
+                    "layers": args.best_layers or "6",
+                    "weight": args.best_weight or 0.1,
+                    "schedule": args.best_schedule or "constant",
                 }
-            elif runner.best_config:
-                best_config = runner.best_config
             else:
+                best_config = runner.best_config
+            
+            if best_config is None:
                 print("⚠️  No best config found. Please provide --best_layers, --best_weight, --best_schedule")
-                print("   or run Stage 3 first.")
                 return
             
             runner.run_stage_4_final_validation(best_config, num_runs=args.validation_runs)
         
         return
-
-    # LEGACY MODE (backward compatibility)
+    
+    # LEGACY MODE
     runner = ExperimentRunner(
         output_dir=args.output_dir,
         num_gpus=args.num_gpus,
@@ -1356,18 +939,16 @@ def main():
         return
     
     if args.experiment:
-        # Run specific experiment
         for run_id in range(args.runs):
             runner.run_experiment(args.experiment, run_id)
     elif args.phase:
-        if args.phase == "all":
-            runner.run_all(args.runs)
-        else:
-            runner.run_phase(args.phase, args.runs)
+        runner.run_phase(args.phase, args.runs)
     else:
         parser.print_help()
-        print("   Example: python run_aux.py --staged --max_budget_hours 7")
-        print("\n Use --list to see available experiments")
+        print("\n💡 Examples:")
+        print("   python run_aux.py --staged")
+        print("   python run_aux.py --stage 1")
+        print("   python run_aux.py --list")
 
 
 if __name__ == "__main__":

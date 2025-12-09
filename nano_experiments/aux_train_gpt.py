@@ -13,7 +13,6 @@ with open(sys.argv[0]) as f:
 import uuid
 import glob
 import time
-import argparse
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -25,8 +24,39 @@ import torch.distributed as dist
 import torch._inductor.config as config
 from torch.nn.parallel import DistributedDataParallel as DDP
 
-from typing import List, Optional, Dict
-import random
+from typing import List
+
+# -----------------------------------------------------------------------------
+# Utility functions for environment info
+
+def get_git_commit():
+    """Get current git commit hash."""
+    try:
+        import subprocess
+        result = subprocess.run(['git', 'rev-parse', 'HEAD'], 
+                                stdout=subprocess.PIPE, 
+                                stderr=subprocess.PIPE, 
+                                text=True, 
+                                timeout=5)
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except:
+        pass
+    return "unknown"
+
+def get_runpod_info():
+    """Get RunPod instance information from environment variables."""
+    return {
+        'pod_id': os.environ.get('RUNPOD_POD_ID', 'N/A'),
+        'gpu_type': os.environ.get('RUNPOD_GPU_TYPE', 'N/A')
+    }
+
+def set_seed(seed):
+    """Set random seed for reproducibility."""
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
 
 # -----------------------------------------------------------------------------
 # Muon optimizer
@@ -202,8 +232,7 @@ class Block(nn.Module):
         return x
 
 # -----------------------------------------------------------------------------
-# ADD: Auxiliary Head for Deep Supervision
-# -----------------------------------------------------------------------------
+# Auxiliary Head for Deep Supervision
 
 class AuxiliaryHead(nn.Module):
     """
@@ -229,7 +258,6 @@ class AuxiliaryHead(nn.Module):
 
 # -----------------------------------------------------------------------------
 # The main GPT-2 model with Auxiliary Heads
-# -----------------------------------------------------------------------------
 
 @dataclass
 class GPTConfig:
@@ -401,7 +429,7 @@ def _load_data_shard(filename):
         assert header[0] == 20240520, "magic number mismatch in the data .bin file"
         assert header[1] == 1, "unsupported version"
         ntok = header[2] # number of tokens (claimed)
-        # the rest of it are tokens, stored as uint16
+        # read the tokens
         tokens = np.frombuffer(f.read(), dtype=np.uint16)
     assert len(tokens) == ntok, "number of tokens read does not match header?"
     return tokens
@@ -452,12 +480,110 @@ class DistributedDataLoader:
         return x.cuda(), y.cuda()
 
 # -----------------------------------------------------------------------------
+# Logging utilities
+
+def write_log_header(f, code, args, aux_head_layers, seed, git_commit, ddp_world_size):
+    """Write comprehensive log header with experiment metadata."""
+    # Code
+    f.write('='*100 + '\n')
+    f.write(code)
+    f.write('='*100 + '\n\n')
+    
+    # Experiment metadata
+    f.write('EXPERIMENT METADATA\n')
+    f.write('-'*100 + '\n')
+    f.write(f"Timestamp: {datetime.now().isoformat()}\n")
+    f.write(f"Git commit: {git_commit}\n")
+    f.write(f"Random seed: {seed}\n")
+    f.write('\n')
+    
+    # Hyperparameters
+    f.write('HYPERPARAMETERS\n')
+    f.write('-'*100 + '\n')
+    f.write(f"Batch size (global): {args.batch_size}\n")
+    f.write(f"Batch size (per device): {args.device_batch_size}\n")
+    f.write(f"Sequence length: {args.sequence_length}\n")
+    f.write(f"Number of iterations: {args.num_iterations}\n")
+    f.write(f"Learning rate: {args.learning_rate}\n")
+    f.write(f"Warmup iterations: {args.warmup_iters}\n")
+    f.write(f"Warmdown iterations: {args.warmdown_iters}\n")
+    f.write(f"Weight decay: {args.weight_decay}\n")
+    f.write(f"Validation every: {args.val_loss_every} steps\n")
+    f.write(f"Validation tokens: {args.val_tokens}\n")
+    f.write('\n')
+    
+    # Auxiliary head configuration
+    f.write('AUXILIARY HEAD CONFIGURATION\n')
+    f.write('-'*100 + '\n')
+    f.write(f"Layers: {aux_head_layers if aux_head_layers else 'None (baseline)'}\n")
+    f.write(f"Loss weight: {args.aux_loss_weight}\n")
+    f.write(f"Loss schedule: {args.aux_loss_schedule}\n")
+    f.write(f"Zero init: {args.aux_head_zero_init}\n")
+    f.write('\n')
+    
+    # System information
+    f.write('SYSTEM INFORMATION\n')
+    f.write('-'*100 + '\n')
+    f.write(f"PyTorch version: {torch.version.__version__}\n")
+    f.write(f"CUDA version: {torch.version.cuda}\n")
+    f.write(f"Number of GPUs: {ddp_world_size}\n")
+    f.write(f"GPU type: {torch.cuda.get_device_name(0)}\n")
+    
+    # RunPod info
+    runpod_info = get_runpod_info()
+    f.write(f"RunPod instance ID: {runpod_info['pod_id']}\n")
+    f.write(f"RunPod GPU type: {runpod_info['gpu_type']}\n")
+    f.write('\n')
+    
+    # nvidia-smi output
+    f.write('NVIDIA-SMI OUTPUT\n')
+    f.write('-'*100 + '\n')
+    import subprocess
+    result = subprocess.run(['nvidia-smi'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    f.write(f'{result.stdout}\n')
+    f.write('='*100 + '\n\n')
+
+def create_aux_log_header(f, aux_head_layers):
+    """Create header for auxiliary loss CSV log."""
+    f.write("step,main_loss,total_aux_loss,aux_weight")
+    for layer in aux_head_layers:
+        f.write(f",aux_loss_layer_{layer}")
+    f.write("\n")
+
+def log_aux_losses(f, step, aux_info, aux_head_layers):
+    """Write auxiliary loss information to CSV log."""
+    main_loss = aux_info.get('main_loss', 0)
+    total_aux_loss = aux_info.get('total_aux_loss', 0)
+    aux_weight = aux_info.get('aux_weight', 0)
+    
+    f.write(f"{step},{main_loss:.6f},{total_aux_loss:.6f},{aux_weight:.6f}")
+    for layer in aux_head_layers:
+        loss_val = aux_info.get('aux_losses', {}).get(f'aux_loss_layer_{layer}', 0)
+        f.write(f",{loss_val:.6f}")
+    f.write("\n")
+
+def format_train_log(step, num_iterations, train_loss, aux_info, aux_head_layers, train_time, step_avg):
+    """Format training log string with optional auxiliary loss information."""
+    log_str = f"step:{step}/{num_iterations} train_loss:{train_loss:.4f}"
+    
+    if aux_head_layers:
+        main_loss = aux_info.get('main_loss', train_loss)
+        aux_weight = aux_info.get('aux_weight', 0)
+        log_str += f" main_loss:{main_loss:.4f} aux_weight:{aux_weight:.4f}"
+        
+        for layer in aux_head_layers:
+            aux_loss = aux_info.get('aux_losses', {}).get(f'aux_loss_layer_{layer}', 0)
+            log_str += f" aux_{layer}:{aux_loss:.4f}"
+    
+    log_str += f" train_time:{train_time:.0f}ms step_avg:{step_avg:.2f}ms"
+    return log_str
+
+# -----------------------------------------------------------------------------
 # int main
 
 @dataclass
 class Hyperparameters:
     # data hyperparams
-    # use parent dir so that we can leave cached_finweb10B in main dir
     input_bin : str = '../fineweb10B/fineweb_train_*.bin' # input .bin to train on
     input_val_bin : str = '../fineweb10B/fineweb_val_*.bin' # input .bin to eval validation loss on
     # optimization hyperparams
@@ -473,379 +599,227 @@ class Hyperparameters:
     val_loss_every : int = 125 # every how many steps to evaluate val loss? 0 for only at the end
     val_tokens : int = 10485760 # how many tokens of validation data? it's important to keep this fixed for consistent comparisons
     save_every : int = 0 # every how many steps to save the checkpoint? 0 for only at the end
-    # Auxiliary head hyperparams
+    # auxiliary head hyperparams
     aux_head_layers : str = ''  # Comma-separated list of layers, e.g., '4,8'
-    aux_loss_weight : float = 0.1  # Weight for auxiliary losses
+    aux_loss_weight : float = 0.1
     aux_loss_schedule : str = 'constant'  # 'constant', 'linear_decay', 'cosine_decay', 'warmup_decay'
+    aux_head_zero_init : bool = True
+    # reproducibility
+    seed : int = 42
 
-def parse_args():
-    parser = argparse.ArgumentParser(description='Train GPT with optional auxiliary heads')
-    # Data hyperparams
-    parser.add_argument('--input_bin', type=str, default='../fineweb10B/fineweb_train_*.bin')
-    parser.add_argument('--input_val_bin', type=str, default='../fineweb10B/fineweb_val_*.bin')
-    # Optimization hyperparams
-    parser.add_argument('--batch_size', type=int, default=8*64)
-    parser.add_argument('--device_batch_size', type=int, default=64)
-    parser.add_argument('--sequence_length', type=int, default=1024)
-    parser.add_argument('--num_iterations', type=int, default=5100)
-    parser.add_argument('--learning_rate', type=float, default=0.0036)
-    parser.add_argument('--warmup_iters', type=int, default=0)
-    parser.add_argument('--warmdown_iters', type=int, default=1450)
-    parser.add_argument('--weight_decay', type=float, default=0)
-    # Evaluation and logging hyperparams
-    parser.add_argument('--val_loss_every', type=int, default=125)
-    parser.add_argument('--val_tokens', type=int, default=10485760)
-    parser.add_argument('--save_every', type=int, default=0)
-    # Auxiliary head hyperparams
-    parser.add_argument('--aux_head_layers', type=str, default='',
-                        help='Comma-separated list of layers for aux heads, e.g., "4,8"')
-    parser.add_argument('--aux_loss_weight', type=float, default=0.1,
-                        help='Weight for auxiliary losses')
-    parser.add_argument('--aux_loss_schedule', type=str, default='constant',
-                        choices=['constant', 'linear_decay', 'cosine_decay', 'warmup_decay'],
-                        help='Schedule for auxiliary loss weight')
-    parser.add_argument('--aux_head_zero_init', action='store_true', default=True,
-                        help='Zero-initialize auxiliary heads')
-    parser.add_argument('--no_aux_head_zero_init', action='store_false', dest='aux_head_zero_init',
-                        help='Do not zero-initialize auxiliary heads')
-    parser.add_argument('--seed', type=int, default=None,
-                        help='Random seed to use (overrides SEED env var); defaults to 42 if unset')
-    return parser.parse_args()
+# Parse auxiliary head layers from string
+args = Hyperparameters()
+aux_head_layers = [int(x.strip()) for x in args.aux_head_layers.split(',')] if args.aux_head_layers else []
 
-def main():
-    args = parse_args()
-    
-    # Parse auxiliary head layers
-    aux_head_layers = []
-    if args.aux_head_layers:
-        aux_head_layers = [int(x.strip()) for x in args.aux_head_layers.split(',')]
-    
-    # ============ ADD SEED SETTING ============
-    # Prefer explicit CLI seed, then SEED env var, then fallback default
-    env_seed = os.environ.get('SEED')
-    seed = args.seed if args.seed is not None else int(env_seed) if env_seed is not None else 42
-    torch.manual_seed(seed)
-    np.random.seed(seed)
-    random.seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
-    # ==========================================
-    
-    # set up DDP (distributed data parallel). torchrun sets this env variable
-    assert torch.cuda.is_available()
-    dist.init_process_group(backend='nccl')
-    ddp_rank = int(os.environ['RANK'])
-    ddp_local_rank = int(os.environ['LOCAL_RANK'])
-    ddp_world_size = int(os.environ['WORLD_SIZE'])
-    device = f'cuda:{ddp_local_rank}'
-    torch.cuda.set_device(device)
-    print(f"using device: {device}")
-    master_process = (ddp_rank == 0)
-    
-    # ============ ADD GIT COMMIT HASH ============
-    git_commit = "unknown"
-    try:
-        import subprocess
-        result = subprocess.run(['git', 'rev-parse', 'HEAD'], 
-                                stdout=subprocess.PIPE, 
-                                stderr=subprocess.PIPE, 
-                                text=True, 
-                                timeout=5)
-        if result.returncode == 0:
-            git_commit = result.stdout.strip()
-    except:
-        pass
-    # =============================================
-    
-    if master_process:
-        print(f"Auxiliary head configuration:")
-        print(f"  Layers: {aux_head_layers if aux_head_layers else 'None (baseline)'}")
-        print(f"  Loss weight: {args.aux_loss_weight}")
-        print(f"  Loss schedule: {args.aux_loss_schedule}")
-        # ============ ADD SEED + GIT LOGGING ============
-        print(f"  Random seed: {seed}")
-        print(f"  Git commit: {git_commit}")
-        # ================================================
+# Set seed for reproducibility
+seed = os.environ.get('SEED', args.seed)
+seed = int(seed) if seed else args.seed
+set_seed(seed)
 
-    # convenience variables
-    B, T = args.device_batch_size, args.sequence_length
-    # calculate the number of steps to take in the val loop.
-    assert args.val_tokens % (B * T * ddp_world_size) == 0
-    val_steps = args.val_tokens // (B * T * ddp_world_size)
-    # calculate the steps of gradient accumulation required to attain the desired global batch size.
-    assert args.batch_size % (B * ddp_world_size) == 0
-    train_accumulation_steps = args.batch_size // (B * ddp_world_size)
+# Collect environment metadata
+git_commit = get_git_commit()
 
-    # load tokens
-    train_loader = DistributedDataLoader(args.input_bin, B, T, ddp_rank, ddp_world_size)
-    val_loader = DistributedDataLoader(args.input_val_bin, B, T, ddp_rank, ddp_world_size)
-    if master_process:
-        print(f"Training DataLoader: total number of tokens: {train_loader.ntok_total} across {len(train_loader.files)} files")
-        print(f"Validation DataLoader: total number of tokens: {val_loader.ntok_total} across {len(val_loader.files)} files")
-    x, y = train_loader.next_batch()
+# set up DDP (distributed data parallel). torchrun sets this env variable
+assert torch.cuda.is_available()
+dist.init_process_group(backend='nccl')
+ddp_rank = int(os.environ['RANK'])
+ddp_local_rank = int(os.environ['LOCAL_RANK'])
+ddp_world_size = int(os.environ['WORLD_SIZE'])
+device = f'cuda:{ddp_local_rank}'
+torch.cuda.set_device(device)
+print(f"using device: {device}")
+master_process = (ddp_rank == 0) # this process will do logging, checkpointing etc.
 
-    # there are only 50257 unique GPT-2 tokens; we extend to nearest multiple of 128 for efficiency. suggested to me by @Grad62304977.
-    # this originates from Karpathy's experiments.
-    num_vocab = 50304
-    
-    # Create model config with auxiliary heads
-    model_config = GPTConfig(
-        vocab_size=num_vocab, 
-        n_layer=12, 
-        n_head=6, 
-        n_embd=768,
-        aux_head_layers=aux_head_layers,
-        aux_loss_weight=args.aux_loss_weight,
-        aux_head_zero_init=args.aux_head_zero_init,
-        aux_loss_schedule=args.aux_loss_schedule,
-    )
-    
-    model = GPT(model_config)
-    model = model.cuda()
-    if hasattr(config, "coordinate_descent_tuning"):
-        config.coordinate_descent_tuning = True # suggested by @Chillee
-    model = torch.compile(model)
-    # here we wrap model into DDP container
-    model = DDP(model, device_ids=[ddp_local_rank])
-    raw_model = model.module # always contains the "raw" unwrapped model
-    ctx = torch.amp.autocast(device_type='cuda', dtype=torch.bfloat16)
+# Print auxiliary head configuration
+if master_process:
+    print(f"Auxiliary heads: {aux_head_layers if aux_head_layers else 'None (baseline)'}")
+    print(f"Seed: {seed}, Git commit: {git_commit[:8]}")
 
-    # init the optimizer(s)
-    # Main head parameters (including tied embedding)
-    main_head_params = list(raw_model.lm_head.parameters())
-    
-    # Auxiliary head parameters
-    aux_head_params = []
-    for aux_head in raw_model.aux_heads.values():
-        aux_head_params.extend(list(aux_head.parameters()))
-    
-    # Combine main and aux head params for AdamW
-    head_params = main_head_params + aux_head_params
-    
-    optimizer1 = torch.optim.AdamW(head_params, lr=args.learning_rate, betas=(0.9, 0.95),
-                                   weight_decay=args.weight_decay, fused=True)
-    optimizer2 = Muon(raw_model.transformer.h.parameters(), lr=0.1*args.learning_rate, momentum=0.95)
-    optimizers = [optimizer1, optimizer2]
-    
-    # learning rate decay scheduler (linear warmup and warmdown)
-    def get_lr(it):
-        assert it <= args.num_iterations
-        # 1) linear warmup for warmup_iters steps
-        if it < args.warmup_iters:
-            return (it+1) / args.warmup_iters
-        # 2) constant lr for a while
-        elif it < args.num_iterations - args.warmdown_iters:
-            return 1.0
-        # 3) linear warmdown
-        else:
-            decay_ratio = (args.num_iterations - it) / args.warmdown_iters
-            return decay_ratio
-    schedulers = [torch.optim.lr_scheduler.LambdaLR(opt, get_lr) for opt in optimizers]
+# convenience variables
+B, T = args.device_batch_size, args.sequence_length
+# calculate the number of steps to take in the val loop.
+assert args.val_tokens % (B * T * ddp_world_size) == 0
+val_steps = args.val_tokens // (B * T * ddp_world_size)
+# calculate the steps of gradient accumulation required to attain the desired global batch size.
+assert args.batch_size % (B * ddp_world_size) == 0
+train_accumulation_steps = args.batch_size // (B * ddp_world_size)
 
-    # begin logging
-    if master_process:
-        run_id = str(uuid.uuid4())
-        logdir = 'logs/%s/' % run_id
-        os.makedirs(logdir, exist_ok=True)
-        logfile = 'logs/%s.txt' % run_id
-        
-        # ============ ENHANCED LOGGING HEADER ============
-        # create the log file
-        with open(logfile, "w") as f:
-            # begin the log by printing this file (the Python code)
-            f.write('='*100 + '\n')
-            f.write(code)
-            f.write('='*100 + '\n')
-            
-            # ============ ADD EXPERIMENT METADATA ============
-            f.write('\nEXPERIMENT METADATA\n')
-            f.write('='*100 + '\n')
-            f.write(f"Run ID: {run_id}\n")
-            f.write(f"Timestamp: {datetime.now().isoformat()}\n")
-            f.write(f"Git commit: {git_commit}\n")
-            f.write(f"Random seed: {seed}\n")
-            f.write('\n')
-            
-            # ============ ADD HYPERPARAMETERS ============
-            f.write('HYPERPARAMETERS\n')
-            f.write('-'*100 + '\n')
-            f.write(f"Batch size (global): {args.batch_size}\n")
-            f.write(f"Batch size (per device): {args.device_batch_size}\n")
-            f.write(f"Sequence length: {args.sequence_length}\n")
-            f.write(f"Number of iterations: {args.num_iterations}\n")
-            f.write(f"Learning rate: {args.learning_rate}\n")
-            f.write(f"Warmup iterations: {args.warmup_iters}\n")
-            f.write(f"Warmdown iterations: {args.warmdown_iters}\n")
-            f.write(f"Weight decay: {args.weight_decay}\n")
-            f.write(f"Validation every: {args.val_loss_every}\n")
-            f.write(f"Validation tokens: {args.val_tokens}\n")
-            f.write('\n')
-            
-            # ============ ADD GPU/SYSTEM INFO ============
-            f.write('SYSTEM INFORMATION\n')
-            f.write('-'*100 + '\n')
-            f.write(f"PyTorch version: {torch.version.__version__}\n")
-            f.write(f"CUDA version: {torch.version.cuda}\n")
-            f.write(f"Number of GPUs: {ddp_world_size}\n")
-            f.write(f"GPU type: {torch.cuda.get_device_name(0)}\n")
-            # ============ ADD RUNPOD INSTANCE INFO ============
-            runpod_id = os.environ.get('RUNPOD_POD_ID', 'N/A')
-            runpod_type = os.environ.get('RUNPOD_GPU_TYPE', 'N/A')
-            f.write(f"RunPod instance ID: {runpod_id}\n")
-            f.write(f"RunPod GPU type: {runpod_type}\n")
-            f.write('\n')
-            # ==================================================
-            
-            # log information about the hardware/software environment this is running on
-            # and print the full `nvidia-smi` to file
-            f.write('NVIDIA-SMI OUTPUT\n')
-            f.write('-'*100 + '\n')
-            import subprocess
-            result = subprocess.run(['nvidia-smi'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            f.write(f'{result.stdout}\n')
-            f.write('='*100 + '\n')
-            
-            # Log auxiliary head configuration
-            f.write(f"\nAUXILIARY HEAD CONFIGURATION\n")
-            f.write('-'*100 + '\n')
-            f.write(f"Layers: {aux_head_layers if aux_head_layers else 'None (baseline)'}\n")
-            f.write(f"Loss weight: {args.aux_loss_weight}\n")
-            f.write(f"Loss schedule: {args.aux_loss_schedule}\n")
-            f.write(f"Zero init: {args.aux_head_zero_init}\n")
-            f.write('='*100 + '\n')
-        # =================================================
-        
-        # Create separate log for auxiliary losses
+# load tokens
+train_loader = DistributedDataLoader(args.input_bin, B, T, ddp_rank, ddp_world_size)
+val_loader = DistributedDataLoader(args.input_val_bin, B, T, ddp_rank, ddp_world_size)
+if master_process:
+    print(f"Training DataLoader: total number of tokens: {train_loader.ntok_total} across {len(train_loader.files)} files")
+    print(f"Validation DataLoader: total number of tokens: {val_loader.ntok_total} across {len(val_loader.files)} files")
+x, y = train_loader.next_batch()
+
+# there are only 50257 unique GPT-2 tokens; we extend to nearest multiple of 128 for efficiency. suggested to me by @Grad62304977.
+# this originates from Karpathy's experiments.
+num_vocab = 50304
+model = GPT(GPTConfig(
+    vocab_size=num_vocab, 
+    n_layer=12, 
+    n_head=6, 
+    n_embd=768,
+    aux_head_layers=aux_head_layers,
+    aux_loss_weight=args.aux_loss_weight,
+    aux_head_zero_init=args.aux_head_zero_init,
+    aux_loss_schedule=args.aux_loss_schedule,
+))
+model = model.cuda()
+if hasattr(config, "coordinate_descent_tuning"):
+    config.coordinate_descent_tuning = True # suggested by @Chillee
+model = torch.compile(model)
+# here we wrap model into DDP container
+model = DDP(model, device_ids=[ddp_local_rank])
+raw_model = model.module # always contains the "raw" unwrapped model
+ctx = torch.amp.autocast(device_type='cuda', dtype=torch.bfloat16)
+
+# init the optimizer(s)
+# Collect all head parameters (main + auxiliary)
+head_params = list(raw_model.lm_head.parameters())
+for aux_head in raw_model.aux_heads.values():
+    head_params.extend(list(aux_head.parameters()))
+
+optimizer1 = torch.optim.AdamW(head_params, lr=args.learning_rate, betas=(0.9, 0.95),
+                               weight_decay=args.weight_decay, fused=True)
+optimizer2 = Muon(raw_model.transformer.h.parameters(), lr=0.1*args.learning_rate, momentum=0.95)
+optimizers = [optimizer1, optimizer2]
+
+# learning rate decay scheduler (linear warmup and warmdown)
+def get_lr(it):
+    assert it <= args.num_iterations
+    # 1) linear warmup for warmup_iters steps
+    if it < args.warmup_iters:
+        return (it+1) / args.warmup_iters
+    # 2) constant lr for a while
+    elif it < args.num_iterations - args.warmdown_iters:
+        return 1.0
+    # 3) linear warmdown
+    else:
+        decay_ratio = (args.num_iterations - it) / args.warmdown_iters
+        return decay_ratio
+schedulers = [torch.optim.lr_scheduler.LambdaLR(opt, get_lr) for opt in optimizers]
+
+# begin logging
+if master_process:
+    run_id = str(uuid.uuid4())
+    logdir = 'logs/%s/' % run_id
+    os.makedirs(logdir, exist_ok=True)
+    logfile = 'logs/%s.txt' % run_id
+    
+    # create the main log file with comprehensive header
+    with open(logfile, "w") as f:
+        write_log_header(f, code, args, aux_head_layers, seed, git_commit, ddp_world_size)
+    
+    # create auxiliary loss log if using auxiliary heads
+    if aux_head_layers:
         aux_logfile = 'logs/%s_aux.txt' % run_id
         with open(aux_logfile, "w") as f:
-            f.write("step,main_loss,total_aux_loss,aux_weight")
-            for layer in aux_head_layers:
-                f.write(f",aux_loss_layer_{layer}")
-            f.write("\n")
+            create_aux_log_header(f, aux_head_layers)
 
-    training_time_ms = 0
-    # start the clock
-    torch.cuda.synchronize()
-    t0 = time.time()
-    # begin training
-    train_loader.reset()
-    for step in range(args.num_iterations + 1):
-        last_step = (step == args.num_iterations)
-        # This effectively ignores timing first 10 steps, which are slower for weird reasons.
-        # Alternately, and slightly more correctly in terms of benchmarking, we could do 10
-        # steps with dummy data first, and then re-initialize the model and reset the loader.
-        if step == 10:
-            training_time_ms = 0
-            t0 = time.time()
-        timed_steps = float('nan') if step <= 11 else (step - 10) + 1 # <= 11 to avoid bug in val
+training_time_ms = 0
+# start the clock
+torch.cuda.synchronize()
+t0 = time.time()
+# begin training
+train_loader.reset()
+for step in range(args.num_iterations + 1):
+    last_step = (step == args.num_iterations)
+    # This effectively ignores timing first 10 steps, which are slower for weird reasons.
+    # Alternately, and slightly more correctly in terms of benchmarking, we could do 10
+    # steps with dummy data first, and then re-initialize the model and reset the loader.
+    if step == 10:
+        training_time_ms = 0
+        t0 = time.time()
+    timed_steps = float('nan') if step <= 11 else (step - 10) + 1 # <= 11 to avoid bug in val
 
-        # once in a while evaluate the validation dataset
-        if (last_step or (args.val_loss_every > 0 and step % args.val_loss_every == 0)):
-            # stop the clock
-            torch.cuda.synchronize()
-            training_time_ms += 1000 * (time.time() - t0)
-            # run validation batches
-            model.eval()
-            val_loader.reset()
-            val_loss = 0.0
-            for _ in range(val_steps):
-                x_val, y_val = val_loader.next_batch()
-                with ctx: # of course, we'd like to use no_grad() here too, but that creates a torch.compile error for some reason
-                    _, loss, _ = model(x_val, y_val, return_logits=False)
-                    val_loss += loss.detach()
-                    del loss
-            dist.all_reduce(val_loss, op=dist.ReduceOp.AVG)
-            val_loss /= val_steps
-            # log val loss to console and to logfile
-            if master_process:
-                print(f'step:{step}/{args.num_iterations} val_loss:{val_loss:.4f} train_time:{training_time_ms:.0f}ms step_avg:{training_time_ms/(timed_steps-1):.2f}ms')
-                with open(logfile, "a") as f:
-                    f.write(f'step:{step}/{args.num_iterations} val_loss:{val_loss:.4f} train_time:{training_time_ms:.0f}ms step_avg:{training_time_ms/(timed_steps-1):.2f}ms\n')
-            # start the clock again
-            torch.cuda.synchronize()
-            t0 = time.time()
-
-        if master_process and (last_step or (args.save_every > 0 and step % args.save_every == 0)):
-            # stop the clock
-            torch.cuda.synchronize()
-            training_time_ms += 1000 * (time.time() - t0)
-            # save the state of the training process
-            log = dict(step=step, code=code, model=raw_model.state_dict(), optimizers=[opt.state_dict() for opt in optimizers])
-            torch.save(log, 'logs/%s/state_step%06d.pt' % (run_id, step))
-            # start the clock again
-            torch.cuda.synchronize()
-            t0 = time.time()
-
-        # bit confusing: we want to make sure to eval on 0th iteration
-        # but also after the very last iteration. so we loop for step <= num_iterations
-        # instead of just < num_iterations (one extra due to <=), only to do
-        # the validation/sampling one last time, and then we break right here as we're done.
-        if last_step:
-            break
-
-        # --------------- TRAINING SECTION BEGIN -----------------
-        model.train()
-        for i in range(1, train_accumulation_steps+1):
-            # forward pass
-            with ctx:
-                _, loss, aux_info = model(x, y, return_logits=False, 
-                                          current_step=step, 
-                                          total_steps=args.num_iterations)
-                train_loss = loss.detach()
-            # advance the dataset for the next batch
-            x, y = train_loader.next_batch()
-            # backward pass
-            if i < train_accumulation_steps:
-                with model.no_sync(): # there's no need to sync gradients every accumulation step
-                    loss.backward()
-            else:
-                loss.backward() # just sync on the last step
-        for p in model.parameters():
-            p.grad /= train_accumulation_steps
-        # step the optimizers and schedulers
-        for opt, sched in zip(optimizers, schedulers):
-            opt.step()
-            sched.step()
-        # null the gradients
-        model.zero_grad(set_to_none=True)
-        # --------------- TRAINING SECTION END -------------------
-        # everything that follows now is just diagnostics, prints, logging, etc.
-
-        #dist.all_reduce(train_loss, op=dist.ReduceOp.AVG) # all-reducing the training loss would be more correct in terms of logging, but slower
+    # once in a while evaluate the validation dataset
+    if (last_step or (args.val_loss_every > 0 and step % args.val_loss_every == 0)):
+        # stop the clock
+        torch.cuda.synchronize()
+        training_time_ms += 1000 * (time.time() - t0)
+        # run validation batches
+        model.eval()
+        val_loader.reset()
+        val_loss = 0.0
+        for _ in range(val_steps):
+            x_val, y_val = val_loader.next_batch()
+            with ctx: # of course, we'd like to use no_grad() here too, but that creates a torch.compile error for some reason
+                _, loss, _ = model(x_val, y_val, return_logits=False)
+                val_loss += loss.detach()
+                del loss
+        dist.all_reduce(val_loss, op=dist.ReduceOp.AVG)
+        val_loss /= val_steps
+        # log val loss to console and to logfile
         if master_process:
-            approx_time = training_time_ms + 1000 * (time.time() - t0)
-            
-            # Log main training info
-            main_loss = aux_info.get('main_loss', train_loss.item())
-            aux_loss_str = ""
-            if aux_head_layers:
-                aux_loss_str = f" main_loss:{main_loss:.4f} aux_weight:{aux_info.get('aux_weight', 0):.4f}"
-                for layer in aux_head_layers:
-                    aux_loss_str += f" aux_{layer}:{aux_info.get('aux_losses', {}).get(f'aux_loss_layer_{layer}', 0):.4f}"
-            
-            print(f"step:{step+1}/{args.num_iterations} train_loss:{train_loss.item():.4f}{aux_loss_str} train_time:{approx_time:.0f}ms step_avg:{approx_time/timed_steps:.2f}ms")
+            print(f'step:{step}/{args.num_iterations} val_loss:{val_loss:.4f} train_time:{training_time_ms:.0f}ms step_avg:{training_time_ms/(timed_steps-1):.2f}ms')
             with open(logfile, "a") as f:
-                f.write(f"step:{step+1}/{args.num_iterations} train_loss:{train_loss.item():.4f}{aux_loss_str} train_time:{approx_time:.0f}ms step_avg:{approx_time/timed_steps:.2f}ms\n")
-            
-            # Log detailed auxiliary info to separate file
-            if aux_head_layers:
-                with open(aux_logfile, "a") as f:
-                    f.write(f"{step+1},{main_loss:.6f},{aux_info.get('total_aux_loss', 0):.6f},{aux_info.get('aux_weight', 0):.6f}")
-                    for layer in aux_head_layers:
-                        f.write(f",{aux_info.get('aux_losses', {}).get(f'aux_loss_layer_{layer}', 0):.6f}")
-                    f.write("\n")
+                f.write(f'step:{step}/{args.num_iterations} val_loss:{val_loss:.4f} train_time:{training_time_ms:.0f}ms step_avg:{training_time_ms/(timed_steps-1):.2f}ms\n')
+        # start the clock again
+        torch.cuda.synchronize()
+        t0 = time.time()
 
+    if master_process and (last_step or (args.save_every > 0 and step % args.save_every == 0)):
+        # stop the clock
+        torch.cuda.synchronize()
+        training_time_ms += 1000 * (time.time() - t0)
+        # save the state of the training process
+        log = dict(step=step, code=code, model=raw_model.state_dict(), optimizers=[opt.state_dict() for opt in optimizers])
+        torch.save(log, 'logs/%s/state_step%06d.pt' % (run_id, step))
+        # start the clock again
+        torch.cuda.synchronize()
+        t0 = time.time()
+
+    # bit confusing: we want to make sure to eval on 0th iteration
+    # but also after the very last iteration. so we loop for step <= num_iterations
+    # instead of just < num_iterations (one extra due to <=), only to do
+    # the validation/sampling one last time, and then we break right here as we're done.
+    if last_step:
+        break
+
+    # --------------- TRAINING SECTION BEGIN -----------------
+    model.train()
+    for i in range(1, train_accumulation_steps+1):
+        # forward pass
+        with ctx:
+            _, loss, aux_info = model(x, y, return_logits=False, 
+                                      current_step=step, 
+                                      total_steps=args.num_iterations)
+            train_loss = loss.detach()
+        # advance the dataset for the next batch
+        x, y = train_loader.next_batch()
+        # backward pass
+        if i < train_accumulation_steps:
+            with model.no_sync(): # there's no need to sync gradients every accumulation step
+                loss.backward()
+        else:
+            loss.backward() # just sync on the last step
+    for p in model.parameters():
+        p.grad /= train_accumulation_steps
+    # step the optimizers and schedulers
+    for opt, sched in zip(optimizers, schedulers):
+        opt.step()
+        sched.step()
+    # null the gradients
+    model.zero_grad(set_to_none=True)
+    # --------------- TRAINING SECTION END -------------------
+    # everything that follows now is just diagnostics, prints, logging, etc.
+
+    #dist.all_reduce(train_loss, op=dist.ReduceOp.AVG) # all-reducing the training loss would be more correct in terms of logging, but slower
     if master_process:
-        print(f"peak memory consumption: {torch.cuda.max_memory_allocated() // 1024 // 1024} MiB")
+        approx_time = training_time_ms + 1000 * (time.time() - t0)
         
-        # Add final summary to log
+        # Format and log training information
+        log_str = format_train_log(step+1, args.num_iterations, train_loss.item(), 
+                                   aux_info, aux_head_layers, approx_time, approx_time/timed_steps)
+        print(log_str)
         with open(logfile, "a") as f:
-            f.write("\n" + "="*100 + "\n")
-            f.write("FINAL RESULTS\n")
-            f.write("="*100 + "\n")
-            f.write(f"Total training time: {training_time_ms/1000:.1f}s\n")
-            f.write(f"Peak memory: {torch.cuda.max_memory_allocated() // 1024 // 1024} MiB\n")
-            f.write(f"Completed iterations: {args.num_iterations}\n")
-            f.write(f"Final validation loss: (see last val_loss entry above)\n")
-            f.write("="*100 + "\n")
-    # ==================================================
+            f.write(log_str + "\n")
+        
+        # Log auxiliary losses to separate CSV file
+        if aux_head_layers:
+            with open(aux_logfile, "a") as f:
+                log_aux_losses(f, step+1, aux_info, aux_head_layers)
+
+if master_process:
+    print(f"peak memory consumption: {torch.cuda.max_memory_allocated() // 1024 // 1024} MiB")
