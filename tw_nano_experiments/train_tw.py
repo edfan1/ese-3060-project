@@ -7,8 +7,11 @@ with open(sys.argv[0]) as f:
 import uuid
 import glob
 import time
+import math
 import random
-from dataclasses import dataclass
+import argparse
+from dataclasses import dataclass, field
+from typing import Optional, Tuple, Dict, Any
 
 import numpy as np
 import torch
@@ -17,6 +20,153 @@ import torch.nn.functional as F
 import torch.distributed as dist
 import torch._inductor.config as config
 from torch.nn.parallel import DistributedDataParallel as DDP
+
+# -----------------------------------------------------------------------------
+# Token Importance Weighting Configuration
+
+@dataclass
+class TokenWeightingConfig:
+    """Configuration for token importance weighting ablations."""
+    enabled: bool = False
+    function: str = "linear"  # linear, sqrt, log, focal
+    clamp_min: float = 0.5
+    clamp_max: float = 2.0
+    schedule: str = "constant"  # constant, warmup, anneal, cyclical, adaptive
+    warmup_steps: int = 1000
+    anneal_final_strength: float = 0.3  # for anneal schedule
+    cyclical_period: int = 500  # for cyclical schedule
+    focal_gamma: float = 2.0  # for focal loss style weighting
+    percentile_clamp: bool = False  # use percentile-based clamping instead of fixed bounds
+    percentile_low: float = 0.05  # lower percentile for clamping
+    percentile_high: float = 0.95  # upper percentile for clamping
+    log_weights: bool = True  # whether to log weight statistics
+    log_every: int = 50  # log weight stats every N steps
+
+def compute_schedule_strength(
+    step: int,
+    total_steps: int,
+    config: TokenWeightingConfig,
+    val_loss: Optional[float] = None
+) -> float:
+    """
+    Compute the weighting strength multiplier based on the schedule.
+    Returns a value in [0, 1] that scales the deviation from uniform weighting.
+    """
+    if config.schedule == "constant":
+        return 1.0
+    
+    elif config.schedule == "warmup":
+        # Linear warmup: start uniform, gradually introduce weighting
+        return min(step / config.warmup_steps, 1.0)
+    
+    elif config.schedule == "anneal":
+        # Annealing: start with strong weighting, decay toward uniform
+        # decay_ratio goes from 1.0 to anneal_final_strength
+        progress = step / total_steps
+        return 1.0 - progress * (1.0 - config.anneal_final_strength)
+    
+    elif config.schedule == "cyclical":
+        # Sine wave oscillation between weak and strong weighting
+        return 0.5 + 0.5 * math.sin(step / config.cyclical_period * 2 * math.pi)
+    
+    elif config.schedule == "adaptive":
+        # Validation-loss-based: strong when loss is high, weaker as loss decreases
+        if val_loss is None:
+            return 1.0  # Default to full strength if no val loss available
+        # Normalize by approximate initial loss (~4.0 for GPT training)
+        return min(val_loss / 4.0, 1.0)
+    
+    else:
+        raise ValueError(f"Unknown schedule: {config.schedule}")
+
+def compute_token_weights(
+    per_token_loss: torch.Tensor,
+    config: TokenWeightingConfig,
+    step: int,
+    total_steps: int,
+    val_loss: Optional[float] = None
+) -> Tuple[torch.Tensor, Dict[str, float]]:
+    """
+    Compute importance weights for tokens based on their loss.
+    
+    Args:
+        per_token_loss: Tensor of shape (batch_size * seq_len,) with per-token losses
+        config: TokenWeightingConfig with weighting parameters
+        step: Current training step
+        total_steps: Total number of training steps
+        val_loss: Current validation loss (for adaptive schedule)
+    
+    Returns:
+        weights: Tensor of same shape as per_token_loss with importance weights
+        stats: Dictionary with weight statistics for logging
+    """
+    if not config.enabled:
+        return torch.ones_like(per_token_loss), {}
+    
+    # Detach to prevent gradient flow through weights
+    loss_detached = per_token_loss.detach()
+    
+    # Compute raw weights based on weighting function
+    if config.function == "linear":
+        # Relative weighting: weight = loss / mean_loss
+        mean_loss = loss_detached.mean()
+        weights = loss_detached / (mean_loss + 1e-8)
+    
+    elif config.function == "sqrt":
+        # Square root weighting: more moderate than linear
+        mean_loss = loss_detached.mean()
+        normalized_loss = loss_detached / (mean_loss + 1e-8)
+        weights = torch.sqrt(normalized_loss)
+    
+    elif config.function == "log":
+        # Logarithmic weighting: most conservative
+        mean_loss = loss_detached.mean()
+        normalized_loss = loss_detached / (mean_loss + 1e-8)
+        # log1p for numerical stability (log(1 + x))
+        weights = torch.log1p(normalized_loss)
+    
+    elif config.function == "focal":
+        # Focal loss style: (loss / max_loss)^gamma
+        max_loss = loss_detached.max()
+        normalized_loss = loss_detached / (max_loss + 1e-8)
+        weights = torch.pow(normalized_loss, config.focal_gamma)
+    
+    else:
+        raise ValueError(f"Unknown weighting function: {config.function}")
+    
+    # Apply clamping
+    if config.percentile_clamp:
+        # Dynamic bounds based on percentiles
+        p_low = torch.quantile(weights, config.percentile_low)
+        p_high = torch.quantile(weights, config.percentile_high)
+        weights = weights.clamp(p_low, p_high)
+    else:
+        # Fixed bounds
+        weights = weights.clamp(config.clamp_min, config.clamp_max)
+    
+    # Apply schedule (interpolate between uniform and computed weights)
+    strength = compute_schedule_strength(step, total_steps, config, val_loss)
+    # weights = 1.0 + (weights - 1.0) * strength
+    # This interpolates: at strength=0, weights=1 (uniform); at strength=1, weights=computed
+    weights = 1.0 + (weights - 1.0) * strength
+    
+    # Normalize weights to have mean 1.0 (preserve expected gradient magnitude)
+    weights = weights / (weights.mean() + 1e-8)
+    
+    # Compute statistics for logging
+    stats = {}
+    if config.log_weights:
+        stats = {
+            'weight_mean': weights.mean().item(),
+            'weight_std': weights.std().item(),
+            'weight_min': weights.min().item(),
+            'weight_max': weights.max().item(),
+            'weight_gt_1.5': (weights > 1.5).float().mean().item() * 100,  # percentage
+            'weight_lt_0.5': (weights < 0.5).float().mean().item() * 100,  # percentage
+            'schedule_strength': strength,
+        }
+    
+    return weights, stats
 
 # -----------------------------------------------------------------------------
 # Random seed utilities for reproducibility
@@ -252,8 +402,20 @@ class GPT(nn.Module):
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
         self.transformer.wte.weight = self.lm_head.weight # https://paperswithcode.com/method/weight-tying
 
-    def forward(self, idx, targets=None, return_logits=True):
-
+    def forward(self, idx, targets=None, return_logits=True, return_per_token_loss=False):
+        """
+        Forward pass through the GPT model.
+        
+        Args:
+            idx: Input token indices of shape (batch_size, seq_len)
+            targets: Target token indices of shape (batch_size, seq_len)
+            return_logits: Whether to return logits
+            return_per_token_loss: Whether to return per-token loss (for token weighting)
+        
+        Returns:
+            logits: Output logits (if return_logits=True)
+            loss: Scalar loss (mean) or per-token loss tensor (if return_per_token_loss=True)
+        """
         # forward the GPT model itself
         x = self.transformer.wte(idx) # token embeddings of shape (b, t, n_embd)
         for block in self.transformer.h:
@@ -264,7 +426,19 @@ class GPT(nn.Module):
             # if we are given some desired targets also calculate the loss
             logits = self.lm_head(x)
             logits = logits.float() # use tf32/fp32 for logits
-            loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1)
+            
+            if return_per_token_loss:
+                # Return per-token loss for token importance weighting
+                # Shape: (batch_size * seq_len,)
+                per_token_loss = F.cross_entropy(
+                    logits.view(-1, logits.size(-1)), 
+                    targets.view(-1), 
+                    ignore_index=-1,
+                    reduction='none'
+                )
+                loss = per_token_loss  # Return unreduced loss
+            else:
+                loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1)
         else:
             # inference-time mini-optimization: only forward the lm_head on the very last position
             logits = self.lm_head(x[:, [-1], :]) # note: using list [-1] to preserve the time dim
@@ -377,7 +551,126 @@ class Hyperparameters:
     # reproducibility hyperparams
     seed : int = None # random seed for reproducibility (None = no seeding, uses system entropy)
     deterministic : bool = False # if True, use deterministic algorithms (slower but reproducible)
-args = Hyperparameters()
+    # token weighting hyperparams (for ablations)
+    tw_enabled : bool = False  # enable token importance weighting
+    tw_function : str = "linear"  # weighting function: linear, sqrt, log, focal
+    tw_clamp_min : float = 0.5  # minimum weight clamp
+    tw_clamp_max : float = 2.0  # maximum weight clamp
+    tw_schedule : str = "constant"  # schedule: constant, warmup, anneal, cyclical, adaptive
+    tw_warmup_steps : int = 1000  # warmup steps for warmup schedule
+    tw_anneal_final : float = 0.3  # final strength for anneal schedule
+    tw_cyclical_period : int = 500  # period for cyclical schedule
+    tw_focal_gamma : float = 2.0  # gamma for focal loss style weighting
+    tw_percentile_clamp : bool = False  # use percentile-based clamping
+    tw_percentile_low : float = 0.05  # lower percentile for clamping
+    tw_percentile_high : float = 0.95  # upper percentile for clamping
+    tw_log_weights : bool = True  # log weight statistics
+    tw_log_every : int = 50  # log weight stats every N steps
+
+def parse_args():
+    """Parse command line arguments and return Hyperparameters and TokenWeightingConfig."""
+    parser = argparse.ArgumentParser(description='NanoGPT Training with Token Importance Weighting')
+    
+    # Data hyperparams
+    parser.add_argument('--input_bin', type=str, default='data/fineweb10B/fineweb_train_*.bin')
+    parser.add_argument('--input_val_bin', type=str, default='data/fineweb10B/fineweb_val_*.bin')
+    
+    # Optimization hyperparams
+    parser.add_argument('--batch_size', type=int, default=8*64)
+    parser.add_argument('--device_batch_size', type=int, default=64)
+    parser.add_argument('--sequence_length', type=int, default=1024)
+    parser.add_argument('--num_iterations', type=int, default=5100)
+    parser.add_argument('--learning_rate', type=float, default=0.0036)
+    parser.add_argument('--warmup_iters', type=int, default=0)
+    parser.add_argument('--warmdown_iters', type=int, default=1450)
+    parser.add_argument('--weight_decay', type=float, default=0)
+    
+    # Evaluation and logging hyperparams
+    parser.add_argument('--val_loss_every', type=int, default=125)
+    parser.add_argument('--val_tokens', type=int, default=10485760)
+    parser.add_argument('--save_every', type=int, default=0)
+    
+    # Reproducibility hyperparams
+    parser.add_argument('--seed', type=int, default=None)
+    parser.add_argument('--deterministic', action='store_true')
+    
+    # Token weighting hyperparams (for ablations)
+    parser.add_argument('--tw_enabled', action='store_true', help='Enable token importance weighting')
+    parser.add_argument('--tw_function', type=str, default='linear', 
+                        choices=['linear', 'sqrt', 'log', 'focal'],
+                        help='Weighting function')
+    parser.add_argument('--tw_clamp_min', type=float, default=0.5, help='Minimum weight clamp')
+    parser.add_argument('--tw_clamp_max', type=float, default=2.0, help='Maximum weight clamp')
+    parser.add_argument('--tw_schedule', type=str, default='constant',
+                        choices=['constant', 'warmup', 'anneal', 'cyclical', 'adaptive'],
+                        help='Weighting schedule')
+    parser.add_argument('--tw_warmup_steps', type=int, default=1000, help='Warmup steps')
+    parser.add_argument('--tw_anneal_final', type=float, default=0.3, help='Final strength for anneal')
+    parser.add_argument('--tw_cyclical_period', type=int, default=500, help='Period for cyclical')
+    parser.add_argument('--tw_focal_gamma', type=float, default=2.0, help='Gamma for focal loss')
+    parser.add_argument('--tw_percentile_clamp', action='store_true', help='Use percentile clamping')
+    parser.add_argument('--tw_percentile_low', type=float, default=0.05, help='Lower percentile')
+    parser.add_argument('--tw_percentile_high', type=float, default=0.95, help='Upper percentile')
+    parser.add_argument('--tw_log_weights', action='store_true', help='Log weight statistics')
+    parser.add_argument('--tw_log_every', type=int, default=50, help='Log weights every N steps')
+    
+    parsed_args = parser.parse_args()
+    
+    # Create Hyperparameters
+    args = Hyperparameters(
+        input_bin=parsed_args.input_bin,
+        input_val_bin=parsed_args.input_val_bin,
+        batch_size=parsed_args.batch_size,
+        device_batch_size=parsed_args.device_batch_size,
+        sequence_length=parsed_args.sequence_length,
+        num_iterations=parsed_args.num_iterations,
+        learning_rate=parsed_args.learning_rate,
+        warmup_iters=parsed_args.warmup_iters,
+        warmdown_iters=parsed_args.warmdown_iters,
+        weight_decay=parsed_args.weight_decay,
+        val_loss_every=parsed_args.val_loss_every,
+        val_tokens=parsed_args.val_tokens,
+        save_every=parsed_args.save_every,
+        seed=parsed_args.seed,
+        deterministic=parsed_args.deterministic,
+        tw_enabled=parsed_args.tw_enabled,
+        tw_function=parsed_args.tw_function,
+        tw_clamp_min=parsed_args.tw_clamp_min,
+        tw_clamp_max=parsed_args.tw_clamp_max,
+        tw_schedule=parsed_args.tw_schedule,
+        tw_warmup_steps=parsed_args.tw_warmup_steps,
+        tw_anneal_final=parsed_args.tw_anneal_final,
+        tw_cyclical_period=parsed_args.tw_cyclical_period,
+        tw_focal_gamma=parsed_args.tw_focal_gamma,
+        tw_percentile_clamp=parsed_args.tw_percentile_clamp,
+        tw_percentile_low=parsed_args.tw_percentile_low,
+        tw_percentile_high=parsed_args.tw_percentile_high,
+        tw_log_weights=parsed_args.tw_log_weights,
+        tw_log_every=parsed_args.tw_log_every,
+    )
+    
+    # Create TokenWeightingConfig
+    tw_config = TokenWeightingConfig(
+        enabled=parsed_args.tw_enabled,
+        function=parsed_args.tw_function,
+        clamp_min=parsed_args.tw_clamp_min,
+        clamp_max=parsed_args.tw_clamp_max,
+        schedule=parsed_args.tw_schedule,
+        warmup_steps=parsed_args.tw_warmup_steps,
+        anneal_final_strength=parsed_args.tw_anneal_final,
+        cyclical_period=parsed_args.tw_cyclical_period,
+        focal_gamma=parsed_args.tw_focal_gamma,
+        percentile_clamp=parsed_args.tw_percentile_clamp,
+        percentile_low=parsed_args.tw_percentile_low,
+        percentile_high=parsed_args.tw_percentile_high,
+        log_weights=parsed_args.tw_log_weights,
+        log_every=parsed_args.tw_log_every,
+    )
+    
+    return args, tw_config
+
+# Parse arguments
+args, tw_config = parse_args()
 
 # set up DDP (distributed data parallel). torchrun sets this env variable
 assert torch.cuda.is_available()
@@ -469,6 +762,36 @@ if master_process:
         if args.seed is not None:
             f.write(f"Random seed: {args.seed} (deterministic={args.deterministic})\n")
             f.write('='*100 + '\n')
+        # log token weighting configuration
+        if tw_config.enabled:
+            f.write(f"Token Weighting Configuration:\n")
+            f.write(f"  function: {tw_config.function}\n")
+            f.write(f"  clamp: [{tw_config.clamp_min}, {tw_config.clamp_max}]\n")
+            f.write(f"  schedule: {tw_config.schedule}\n")
+            if tw_config.schedule == 'warmup':
+                f.write(f"  warmup_steps: {tw_config.warmup_steps}\n")
+            elif tw_config.schedule == 'anneal':
+                f.write(f"  anneal_final_strength: {tw_config.anneal_final_strength}\n")
+            elif tw_config.schedule == 'cyclical':
+                f.write(f"  cyclical_period: {tw_config.cyclical_period}\n")
+            if tw_config.function == 'focal':
+                f.write(f"  focal_gamma: {tw_config.focal_gamma}\n")
+            if tw_config.percentile_clamp:
+                f.write(f"  percentile_clamp: [{tw_config.percentile_low}, {tw_config.percentile_high}]\n")
+            f.write('='*100 + '\n')
+        else:
+            f.write("Token Weighting: DISABLED (baseline run)\n")
+            f.write('='*100 + '\n')
+    
+    # Also log token weighting config to console
+    if tw_config.enabled:
+        print(f"Token Weighting: ENABLED")
+        print(f"  function={tw_config.function}, clamp=[{tw_config.clamp_min}, {tw_config.clamp_max}], schedule={tw_config.schedule}")
+    else:
+        print(f"Token Weighting: DISABLED (baseline run)")
+
+# Track validation loss for adaptive schedule
+current_val_loss = None
 
 training_time_ms = 0
 # start the clock
@@ -503,6 +826,7 @@ for step in range(args.num_iterations + 1):
                 del loss
         dist.all_reduce(val_loss, op=dist.ReduceOp.AVG)
         val_loss /= val_steps
+        current_val_loss = val_loss.item()  # Store for adaptive schedule
         # log val loss to console and to logfile
         if master_process:
             print(f'step:{step}/{args.num_iterations} val_loss:{val_loss:.4f} train_time:{training_time_ms:.0f}ms step_avg:{training_time_ms/(timed_steps-1):.2f}ms')
@@ -521,6 +845,14 @@ for step in range(args.num_iterations + 1):
         # also save the seed for reproducibility
         if args.seed is not None:
             log['seed'] = args.seed
+        # save token weighting config
+        if tw_config.enabled:
+            log['tw_config'] = {
+                'function': tw_config.function,
+                'clamp_min': tw_config.clamp_min,
+                'clamp_max': tw_config.clamp_max,
+                'schedule': tw_config.schedule,
+            }
         torch.save(log, 'logs/%s/state_step%06d.pt' % (run_id, step))
         # start the clock again
         torch.cuda.synchronize()
@@ -535,11 +867,42 @@ for step in range(args.num_iterations + 1):
 
     # --------------- TRAINING SECTION BEGIN -----------------
     model.train()
+    
+    # Accumulate weight statistics across accumulation steps
+    accumulated_weight_stats = {}
+    
     for i in range(1, train_accumulation_steps+1):
         # forward pass
         with ctx:
-            _, loss = model(x, y, return_logits=False)
-            train_loss = loss.detach()
+            if tw_config.enabled:
+                # Get per-token loss for token weighting
+                _, per_token_loss = model(x, y, return_logits=False, return_per_token_loss=True)
+                
+                # Compute token importance weights
+                weights, weight_stats = compute_token_weights(
+                    per_token_loss,
+                    tw_config,
+                    step,
+                    args.num_iterations,
+                    current_val_loss
+                )
+                
+                # Apply weights and compute mean loss
+                weighted_loss = per_token_loss * weights
+                loss = weighted_loss.mean()
+                train_loss = per_token_loss.mean().detach()  # Log unweighted loss for fair comparison
+                
+                # Accumulate weight stats
+                if weight_stats and (step % tw_config.log_every == 0):
+                    for k, v in weight_stats.items():
+                        if k not in accumulated_weight_stats:
+                            accumulated_weight_stats[k] = []
+                        accumulated_weight_stats[k].append(v)
+            else:
+                # Standard training without token weighting
+                _, loss = model(x, y, return_logits=False)
+                train_loss = loss.detach()
+        
         # advance the dataset for the next batch
         x, y = train_loader.next_batch()
         # backward pass
@@ -562,9 +925,20 @@ for step in range(args.num_iterations + 1):
     #dist.all_reduce(train_loss, op=dist.ReduceOp.AVG) # all-reducing the training loss would be more correct in terms of logging, but slower
     if master_process:
         approx_time = training_time_ms + 1000 * (time.time() - t0)
-        print(f"step:{step+1}/{args.num_iterations} train_loss:{train_loss.item():.4f} train_time:{approx_time:.0f}ms step_avg:{approx_time/timed_steps:.2f}ms")
+        
+        # Build log message
+        log_msg = f"step:{step+1}/{args.num_iterations} train_loss:{train_loss.item():.4f} train_time:{approx_time:.0f}ms step_avg:{approx_time/timed_steps:.2f}ms"
+        
+        # Add weight statistics if enabled and this is a logging step
+        if tw_config.enabled and tw_config.log_weights and accumulated_weight_stats and (step % tw_config.log_every == 0):
+            # Average the accumulated stats
+            avg_weight_stats = {k: sum(v)/len(v) for k, v in accumulated_weight_stats.items()}
+            weight_log = f" w_mean:{avg_weight_stats.get('weight_mean', 1.0):.3f} w_std:{avg_weight_stats.get('weight_std', 0.0):.3f} w_min:{avg_weight_stats.get('weight_min', 1.0):.3f} w_max:{avg_weight_stats.get('weight_max', 1.0):.3f}"
+            log_msg += weight_log
+        
+        print(log_msg)
         with open(logfile, "a") as f:
-            f.write(f"step:{step+1}/{args.num_iterations} train_loss:{train_loss.item():.4f} train_time:{approx_time:.0f}ms step_avg:{approx_time/timed_steps:.2f}ms\n")
+            f.write(log_msg + "\n")
 
 if master_process:
     print(f"peak memory consumption: {torch.cuda.max_memory_allocated() // 1024 // 1024} MiB")
