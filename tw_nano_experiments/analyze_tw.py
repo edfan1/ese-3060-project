@@ -110,6 +110,171 @@ class ExperimentGroup:
     def get_peak_memory(self) -> np.ndarray:
         """Get peak memory usage from each run."""
         return np.array([r.peak_memory_mib for r in self.runs if r.peak_memory_mib is not None])
+    
+    def get_val_losses_at_step(self, step: int) -> np.ndarray:
+        """Get validation losses at a specific step (for truncated comparison)."""
+        losses = []
+        for r in self.runs:
+            loss = get_val_loss_at_step(r, step)
+            if loss is not None:
+                losses.append(loss)
+        return np.array(losses)
+    
+    def get_train_times_at_step(self, step: int) -> np.ndarray:
+        """Get training times at a specific step (for truncated comparison)."""
+        times = []
+        for r in self.runs:
+            t = get_train_time_at_step(r, step)
+            if t is not None:
+                times.append(t)
+        return np.array(times)
+
+
+def compare_at_step(
+    baseline: ExperimentGroup,
+    treatment: ExperimentGroup,
+    step: int,
+    alpha: float = 0.05
+) -> Dict[str, Any]:
+    """
+    Compare treatment group to baseline at a specific step.
+    Useful for comparing screening runs to truncated full runs.
+    """
+    baseline_vals = baseline.get_val_losses_at_step(step)
+    treatment_vals = treatment.get_val_losses_at_step(step)
+    
+    baseline_times = baseline.get_train_times_at_step(step)
+    treatment_times = treatment.get_train_times_at_step(step)
+    
+    result = {
+        'step': step,
+        'baseline_n': len(baseline_vals),
+        'treatment_n': len(treatment_vals),
+    }
+    
+    # Validation loss comparison
+    if len(baseline_vals) >= 1 and len(treatment_vals) >= 1:
+        baseline_mean = np.mean(baseline_vals)
+        treatment_mean = np.mean(treatment_vals)
+        mean_diff = treatment_mean - baseline_mean
+        percent_change = (mean_diff / baseline_mean) * 100 if baseline_mean != 0 else np.nan
+        
+        result.update({
+            'baseline_mean': baseline_mean,
+            'treatment_mean': treatment_mean,
+            'mean_diff': mean_diff,
+            'percent_change': percent_change,
+            'baseline_std': np.std(baseline_vals, ddof=1) if len(baseline_vals) > 1 else 0,
+            'treatment_std': np.std(treatment_vals, ddof=1) if len(treatment_vals) > 1 else 0,
+        })
+        
+        # Statistical test if enough samples
+        if len(baseline_vals) >= 2 and len(treatment_vals) >= 2:
+            t_stat, p_value = stats.ttest_ind(treatment_vals, baseline_vals, equal_var=False)
+            result.update({
+                't_statistic': t_stat,
+                'p_value': p_value,
+                'significant': p_value < alpha,
+                'cohens_d': cohens_d(treatment_vals, baseline_vals),
+            })
+        else:
+            result.update({
+                't_statistic': np.nan,
+                'p_value': np.nan,
+                'significant': False,
+                'cohens_d': np.nan,
+            })
+    else:
+        result.update({
+            'baseline_mean': np.nan,
+            'treatment_mean': np.nan,
+            'mean_diff': np.nan,
+            'percent_change': np.nan,
+        })
+    
+    # Time comparison
+    if len(baseline_times) >= 1 and len(treatment_times) >= 1:
+        result.update({
+            'time_baseline_mean_ms': np.mean(baseline_times),
+            'time_treatment_mean_ms': np.mean(treatment_times),
+            'time_diff_ms': np.mean(treatment_times) - np.mean(baseline_times),
+        })
+    
+    return result
+
+
+def generate_truncated_comparison_report(
+    groups: Dict[str, ExperimentGroup],
+    baseline_name: str,
+    comparison_step: int,
+    output_dir: Path
+):
+    """
+    Generate comparison report at a specific step.
+    Useful for comparing screening runs against truncated baseline.
+    """
+    if baseline_name not in groups:
+        print(f"Baseline '{baseline_name}' not found")
+        return
+    
+    baseline = groups[baseline_name]
+    
+    print(f"\n{'='*60}")
+    print(f"TRUNCATED COMPARISON AT STEP {comparison_step}")
+    print(f"{'='*60}")
+    
+    # Get baseline val loss at this step
+    baseline_losses = baseline.get_val_losses_at_step(comparison_step)
+    if len(baseline_losses) == 0:
+        print(f"No baseline data at step {comparison_step}")
+        return
+    
+    print(f"\nBaseline at step {comparison_step}:")
+    print(f"  Val Loss: {np.mean(baseline_losses):.4f} ± {np.std(baseline_losses, ddof=1) if len(baseline_losses) > 1 else 0:.4f} (n={len(baseline_losses)})")
+    
+    # Compare each treatment
+    results = []
+    print(f"\nComparisons:")
+    print("-" * 60)
+    
+    for group_name, group in sorted(groups.items()):
+        if group_name == baseline_name:
+            continue
+        
+        comparison = compare_at_step(baseline, group, comparison_step)
+        
+        if np.isnan(comparison.get('treatment_mean', np.nan)):
+            continue
+        
+        results.append({
+            'name': group_name,
+            **comparison
+        })
+        
+        sig_marker = "✓" if comparison.get('significant', False) else ""
+        print(f"\n{group_name}:")
+        print(f"  Val Loss: {comparison['treatment_mean']:.4f} ± {comparison.get('treatment_std', 0):.4f}")
+        print(f"  vs Baseline: {comparison['mean_diff']:.4f} ({comparison['percent_change']:+.2f}%) {sig_marker}")
+        if not np.isnan(comparison.get('p_value', np.nan)):
+            print(f"  p-value: {comparison['p_value']:.4f}, Cohen's d: {comparison.get('cohens_d', np.nan):.3f}")
+    
+    # Save to CSV
+    if results:
+        df = pd.DataFrame(results)
+        df = df.sort_values('treatment_mean')
+        csv_path = output_dir / f"comparison_at_step_{comparison_step}.csv"
+        df.to_csv(csv_path, index=False)
+        print(f"\nSaved: {csv_path}")
+        
+        # Print ranking
+        print(f"\n{'='*60}")
+        print(f"RANKING AT STEP {comparison_step} (by val loss)")
+        print(f"{'='*60}")
+        for i, row in df.iterrows():
+            sig = "✓" if row.get('significant', False) else " "
+            print(f"  {row['treatment_mean']:.4f} ({row['percent_change']:+.2f}%) [{sig}] {row['name']}")
+    
+    return results
 
 
 # =============================================================================
@@ -258,6 +423,42 @@ def load_experiment(exp_dir: Path) -> Optional[TrainingRun]:
         run.time_to_targets[target] = compute_time_to_target(run, target)
     
     return run
+
+
+def get_val_loss_at_step(run: TrainingRun, target_step: int) -> Optional[float]:
+    """Get validation loss at or nearest to target step."""
+    if not run.val_steps or not run.val_losses:
+        return None
+    
+    # Find the closest step <= target_step
+    best_idx = None
+    best_step = -1
+    for i, step in enumerate(run.val_steps):
+        if step <= target_step and step > best_step:
+            best_step = step
+            best_idx = i
+    
+    if best_idx is not None:
+        return run.val_losses[best_idx]
+    return None
+
+
+def get_train_time_at_step(run: TrainingRun, target_step: int) -> Optional[float]:
+    """Get training time at or nearest to target step."""
+    if not run.steps or not run.train_times_ms:
+        return None
+    
+    # Find the closest step <= target_step
+    best_idx = None
+    best_step = -1
+    for i, step in enumerate(run.steps):
+        if step <= target_step and step > best_step:
+            best_step = step
+            best_idx = i
+    
+    if best_idx is not None:
+        return run.train_times_ms[best_idx]
+    return None
 
 
 def compute_time_to_target(run: TrainingRun, target_loss: float) -> Optional[float]:
@@ -1227,6 +1428,10 @@ def main():
         "--no-plots", action="store_true",
         help="Skip plot generation"
     )
+    parser.add_argument(
+        "--compare-at-step", type=int, default=None,
+        help="Compare all experiments at a specific step (for truncated baseline comparison)"
+    )
     
     args = parser.parse_args()
     
@@ -1263,6 +1468,15 @@ def main():
         output_dir=output_dir,
         baseline_name=args.baseline_name
     )
+    
+    # Truncated comparison if requested
+    if args.compare_at_step:
+        generate_truncated_comparison_report(
+            groups=groups,
+            baseline_name=args.baseline_name,
+            comparison_step=args.compare_at_step,
+            output_dir=output_dir
+        )
     
     # Export raw data if requested
     if args.export_csv:
