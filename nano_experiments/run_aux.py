@@ -56,6 +56,7 @@ import time
 from datetime import datetime
 from dataclasses import dataclass, field, asdict
 from typing import List, Dict, Optional, Any
+import numpy as np
 DEFAULT_SEEDS = [42, 1337, 2603, 4242, 7777]
 
 from pathlib import Path
@@ -242,187 +243,17 @@ def get_deep_dive_experiments(best_layer_config: str) -> Dict[str, ExperimentCon
 
 def get_all_experiments() -> Dict[str, ExperimentConfig]:
     """
-    Define all experiments for ablation studies, includes legacy experiments
+    Define all experiments for ablation studies, includes legacy experiments.
+    
+    Note: Screening and layer_position experiments are merged in. If there are
+    name collisions, the staged experiments (screening/layer_position) take 
+    precedence since they are merged last.
     
     Returns a dictionary mapping experiment names to their configurations.
     """
     experiments = {}
-    
-    # =========================================================================
-    # Phase 1: Baseline
-    # =========================================================================
-    experiments["baseline"] = ExperimentConfig(
-        name="baseline",
-        aux_head_layers="",
-        aux_loss_weight=0.0,
-        aux_loss_schedule="constant",
-        description="Baseline: No auxiliary heads",
-        phase="baseline",
-    )
-    
-    # =========================================================================
-    # Phase 2: Layer Position Ablation (reduced to key layers)
-    # =========================================================================
-    for layer in [4, 6, 8]:
-        experiments[f"aux_{layer}"] = ExperimentConfig(
-            name=f"aux_{layer}",
-            aux_head_layers=str(layer),
-            aux_loss_weight=0.1,
-            aux_loss_schedule="constant",
-            description=f"Single aux head at layer {layer}",
-            phase="layer_position",
-        )
-    
-    # =========================================================================
-    # Phase 3: Number of Heads Ablation
-    # Different numbers and positions of auxiliary heads
-    # =========================================================================
-    
-    # Two heads
-    experiments["aux_4_8"] = ExperimentConfig(
-        name="aux_4_8",
-        aux_head_layers="4,8",
-        aux_loss_weight=0.1,
-        aux_loss_schedule="constant",
-        description="Two aux heads at layers 4 and 8",
-        phase="num_heads",
-    )
-    
-    experiments["aux_3_9"] = ExperimentConfig(
-        name="aux_3_9",
-        aux_head_layers="3,9",
-        aux_loss_weight=0.1,
-        aux_loss_schedule="constant",
-        description="Two aux heads at layers 3 and 9 (wider spacing)",
-        phase="num_heads",
-    )
-    
-    experiments["aux_5_7"] = ExperimentConfig(
-        name="aux_5_7",
-        aux_head_layers="5,7",
-        aux_loss_weight=0.1,
-        aux_loss_schedule="constant",
-        description="Two aux heads at layers 5 and 7 (tighter spacing)",
-        phase="num_heads",
-    )
-    
-    # Three heads
-    experiments["aux_3_6_9"] = ExperimentConfig(
-        name="aux_3_6_9",
-        aux_head_layers="3,6,9",
-        aux_loss_weight=0.1,
-        aux_loss_schedule="constant",
-        description="Three aux heads at layers 3, 6, and 9",
-        phase="num_heads",
-    )
-    
-    experiments["aux_2_6_10"] = ExperimentConfig(
-        name="aux_2_6_10",
-        aux_head_layers="2,6,10",
-        aux_loss_weight=0.1,
-        aux_loss_schedule="constant",
-        description="Three aux heads at layers 2, 6, and 10",
-        phase="num_heads",
-    )
-    
-    experiments["aux_4_6_8"] = ExperimentConfig(
-        name="aux_4_6_8",
-        aux_head_layers="4,6,8",
-        aux_loss_weight=0.1,
-        aux_loss_schedule="constant",
-        description="Three aux heads at layers 4, 6, and 8 (middle focus)",
-        phase="num_heads",
-    )
-    
-    # Four heads (more aggressive deep supervision)
-    experiments["aux_2_4_6_8"] = ExperimentConfig(
-        name="aux_2_4_6_8",
-        aux_head_layers="2,4,6,8",
-        aux_loss_weight=0.1,
-        aux_loss_schedule="constant",
-        description="Four aux heads at layers 2, 4, 6, and 8",
-        phase="num_heads",
-    )
-    
-    # =========================================================================
-    # Phase 4: Loss Weight Ablation
-    # Using the promising [4,8] configuration
-    # =========================================================================
-    for weight in [0.01, 0.05, 0.1, 0.2, 0.5]:
-        weight_str = str(weight).replace(".", "p")
-        experiments[f"aux_4_8_w{weight_str}"] = ExperimentConfig(
-            name=f"aux_4_8_w{weight_str}",
-            aux_head_layers="4,8",
-            aux_loss_weight=weight,
-            aux_loss_schedule="constant",
-            description=f"Aux heads [4,8] with weight {weight}",
-            phase="loss_weight",
-        )
-    
-    # =========================================================================
-    # Phase 5: Loss Schedule Ablation
-    # Using [4,8] with weight 0.1
-    # =========================================================================
-    for schedule in ["constant", "linear_decay", "cosine_decay", "warmup_decay"]:
-        experiments[f"aux_4_8_{schedule}"] = ExperimentConfig(
-            name=f"aux_4_8_{schedule}",
-            aux_head_layers="4,8",
-            aux_loss_weight=0.1,
-            aux_loss_schedule=schedule,
-            description=f"Aux heads [4,8] with {schedule} schedule",
-            phase="loss_schedule",
-        )
-    
-    # =========================================================================
-    # Phase 6: Combined Best Configurations (to be determined after Phase 2-5)
-    # =========================================================================
-    # These are hypothetical "best" configs - adjust based on results
-    experiments["best_v1"] = ExperimentConfig(
-        name="best_v1",
-        aux_head_layers="4,8",
-        aux_loss_weight=0.1,
-        aux_loss_schedule="linear_decay",
-        description="Best config v1: [4,8], w=0.1, linear_decay",
-        phase="best",
-    )
-    
-    experiments["best_v2"] = ExperimentConfig(
-        name="best_v2",
-        aux_head_layers="3,6,9",
-        aux_loss_weight=0.05,
-        aux_loss_schedule="cosine_decay",
-        description="Best config v2: [3,6,9], w=0.05, cosine_decay",
-        phase="best",
-    )
-    
-    # =========================================================================
-    # Quick Test Experiments (shorter runs for debugging)
-    # =========================================================================
-    experiments["quick_baseline"] = ExperimentConfig(
-        name="quick_baseline",
-        aux_head_layers="",
-        aux_loss_weight=0.0,
-        aux_loss_schedule="constant",
-        description="Quick baseline (500 iters)",
-        phase="quick",
-        num_iterations=500,
-        val_loss_every=50,
-    )
-    
-    experiments["quick_aux_4_8"] = ExperimentConfig(
-        name="quick_aux_4_8",
-        aux_head_layers="4,8",
-        aux_loss_weight=0.1,
-        aux_loss_schedule="constant",
-        description="Quick aux [4,8] (500 iters)",
-        phase="quick",
-        num_iterations=500,
-        val_loss_every=50,
-    )
-    
     experiments = experiments | get_screening_experiments()
     experiments = experiments | get_layer_position_experiments()
-    
     return experiments
 
 
@@ -495,7 +326,6 @@ class ExperimentRunner:
         self,
         experiment_name: str,
         run_id: int = 0,
-        dry_run: bool = False,
     ) -> ExperimentResult:
         """Run a single experiment."""
         
@@ -520,23 +350,7 @@ class ExperimentRunner:
         ] + config.to_args() + [f"--seed={seed}"]
         
         print(f"Command: {' '.join(cmd)}")
-        
-        if dry_run:
-            print("[DRY RUN] Would execute the above command")
-            return ExperimentResult(
-                experiment_name=experiment_name,
-                run_id=run_id,
-                seed=seed,
-                config=asdict(config),
-                final_val_loss=0.0,
-                final_train_loss=0.0,
-                training_time_ms=0.0,
-                step_avg_ms=0.0,
-                log_file="",
-                aux_log_file=None,
-                success=True,
-            )
-        
+
         # Create experiment-specific output directory
         exp_dir = self.run_dir / experiment_name / f"run_{run_id}"
         exp_dir.mkdir(parents=True, exist_ok=True)
@@ -690,7 +504,6 @@ class ExperimentRunner:
         self,
         phase: str,
         num_runs: int = 1,
-        dry_run: bool = False,
     ) -> List[ExperimentResult]:
         """Run all experiments in a phase."""
         
@@ -712,7 +525,7 @@ class ExperimentRunner:
         results = []
         for exp_name in phase_experiments:
             for run_id in range(num_runs):
-                result = self.run_experiment(exp_name, run_id, dry_run)
+                result = self.run_experiment(exp_name, run_id)
                 results.append(result)
         
         return results
@@ -720,7 +533,6 @@ class ExperimentRunner:
     def run_all(
         self,
         num_runs: int = 1,
-        dry_run: bool = False,
         phases: Optional[List[str]] = None,
     ) -> List[ExperimentResult]:
         """Run all experiments or specified phases."""
@@ -737,7 +549,7 @@ class ExperimentRunner:
         
         results = []
         for phase in phases:
-            phase_results = self.run_phase(phase, num_runs, dry_run)
+            phase_results = self.run_phase(phase, num_runs)
             results.extend(phase_results)
         
         # Save all results
@@ -907,8 +719,6 @@ class StagedAblationRunner(ExperimentRunner):
             results.append(result)
         
         self.budget_used_hours += estimated_time
-        
-        # Analyze results
         baseline_loss = next(r.final_val_loss for r in results if r.experiment_name == "screen_baseline")
         aux_results = [(r.experiment_name, r.final_val_loss) for r in results if "aux" in r.experiment_name]
         
@@ -997,7 +807,11 @@ class StagedAblationRunner(ExperimentRunner):
             best_config = get_layer_position_experiments()[best_name]
             best_layers = best_config.aux_head_layers
             
-            improvement = (baseline_result.final_val_loss - best_loss) / baseline_result.final_val_loss * 100
+            # Avoid division by zero
+            if baseline_result.final_val_loss > 0:
+                improvement = (baseline_result.final_val_loss - best_loss) / baseline_result.final_val_loss * 100
+            else:
+                improvement = 0.0
             time_delta = (best_time - baseline_result.training_time_ms) / 1000  # seconds
             
             print(f"\n📊 STAGE 2 RESULTS:")
@@ -1100,7 +914,7 @@ class StagedAblationRunner(ExperimentRunner):
             results.append(result)
         
         self.budget_used_hours += estimated_time
-        
+
         # Analyze results
         weight_results = [(r.experiment_name, r.final_val_loss) 
                           for r in results if "dive_w" in r.experiment_name]
@@ -1117,7 +931,6 @@ class StagedAblationRunner(ExperimentRunner):
         if best_schedule_name:
             print(f"  Best schedule config: {best_schedule_name} ({best_schedule_loss:.4f})")
         if validation_results:
-            import numpy as np
             val_mean = np.mean(validation_results)
             val_std = np.std(validation_results)
             print(f"  Validation runs: {val_mean:.4f} ± {val_std:.4f}")
@@ -1233,7 +1046,11 @@ class StagedAblationRunner(ExperimentRunner):
         # Effect sizes
         loss_mean_best = np.mean(best_losses)
         loss_mean_baseline = np.mean(baseline_losses)
-        loss_improvement_pct = (loss_mean_baseline - loss_mean_best) / loss_mean_baseline * 100
+        # Avoid division by zero
+        if loss_mean_baseline > 0:
+            loss_improvement_pct = (loss_mean_baseline - loss_mean_best) / loss_mean_baseline * 100
+        else:
+            loss_improvement_pct = 0.0
         
         time_mean_best = np.mean(best_times) / 1000
         time_mean_baseline = np.mean(baseline_times) / 1000
@@ -1465,13 +1282,7 @@ def main():
         action="store_true",
         help="List all available experiments",
     )
-    
-    parser.add_argument(
-        "--dry_run",
-        action="store_true",
-        help="Print commands without executing",
-    )
-    
+
     parser.add_argument(
         "--train_script",
         type=str,
@@ -1547,12 +1358,12 @@ def main():
     if args.experiment:
         # Run specific experiment
         for run_id in range(args.runs):
-            runner.run_experiment(args.experiment, run_id, args.dry_run)
+            runner.run_experiment(args.experiment, run_id)
     elif args.phase:
         if args.phase == "all":
-            runner.run_all(args.runs, args.dry_run)
+            runner.run_all(args.runs)
         else:
-            runner.run_phase(args.phase, args.runs, args.dry_run)
+            runner.run_phase(args.phase, args.runs)
     else:
         parser.print_help()
         print("   Example: python run_aux.py --staged --max_budget_hours 7")
