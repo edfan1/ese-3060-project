@@ -7,19 +7,19 @@ token importance weighting in NanoGPT training.
 
 Usage:
     # Run all Phase 1 baseline experiments
-    python run_ablations.py --phase 1
+    python run_tw.py --phase 1
 
     # Run Phase 2 screening (short runs)
-    python run_ablations.py --phase 2 --stage screening
+    python run_tw.py --phase 2 --stage screening
 
     # Run a specific experiment by name
-    python run_ablations.py --experiment baseline_seed42
+    python run_tw.py --experiment baseline_seed42
 
     # List all experiments without running
-    python run_ablations.py --phase 2 --dry-run
+    python run_tw.py --phase 2 --dry-run
 
     # Run with custom GPU count
-    python run_ablations.py --phase 1 --gpus 4
+    python run_tw.py --phase 1 --gpus 4
 """
 
 import os
