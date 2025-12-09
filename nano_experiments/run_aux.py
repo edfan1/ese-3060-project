@@ -52,6 +52,7 @@ import sys
 import json
 import argparse
 import subprocess
+import signal
 import time
 from datetime import datetime
 from dataclasses import dataclass, field, asdict
@@ -60,6 +61,102 @@ from pathlib import Path
 import shutil
 
 DEFAULT_SEEDS = [42, 1337, 2603, 4242, 7777]
+
+# =============================================================================
+# GPU Cleanup Utilities
+# =============================================================================
+
+def cleanup_gpu_processes(verbose: bool = True):
+    """Kill any lingering GPU processes and clear CUDA cache."""
+    # Give processes time to clean up naturally
+    time.sleep(2)
+    
+    # Try to kill any orphaned torchrun/python processes using GPUs
+    try:
+        # Get PIDs of processes using NVIDIA GPUs
+        result = subprocess.run(
+            ['nvidia-smi', '--query-compute-apps=pid', '--format=csv,noheader,nounits'],
+            capture_output=True, text=True, timeout=10
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            pids = result.stdout.strip().split('\n')
+            current_pid = os.getpid()
+            for pid in pids:
+                pid = pid.strip()
+                if pid and pid.isdigit() and int(pid) != current_pid:
+                    try:
+                        # Check if it's a python/torch process before killing
+                        proc_check = subprocess.run(
+                            ['ps', '-p', pid, '-o', 'comm='],
+                            capture_output=True, text=True, timeout=5
+                        )
+                        if 'python' in proc_check.stdout.lower():
+                            if verbose:
+                                print(f"    Killing orphaned GPU process: {pid}")
+                            os.kill(int(pid), signal.SIGTERM)
+                            time.sleep(1)
+                            # Force kill if still running
+                            try:
+                                os.kill(int(pid), signal.SIGKILL)
+                            except ProcessLookupError:
+                                pass  # Already dead
+                    except (ProcessLookupError, PermissionError, subprocess.TimeoutExpired):
+                        pass
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass
+    
+    # Additional wait for processes to terminate
+    time.sleep(2)
+    
+    # Clear CUDA cache via a quick Python invocation
+    try:
+        subprocess.run(
+            ['python', '-c', 'import torch; torch.cuda.empty_cache() if torch.cuda.is_available() else None'],
+            timeout=10, capture_output=True
+        )
+    except Exception:
+        pass
+
+
+def wait_for_gpus_free(timeout: int = 60, verbose: bool = True) -> bool:
+    """Wait for GPUs to be free before starting next experiment."""
+    start = time.time()
+    while time.time() - start < timeout:
+        try:
+            result = subprocess.run(
+                ['nvidia-smi', '--query-compute-apps=pid', '--format=csv,noheader,nounits'],
+                capture_output=True, text=True, timeout=10
+            )
+            if result.returncode == 0:
+                pids = [p.strip() for p in result.stdout.strip().split('\n') if p.strip()]
+                if not pids:
+                    if verbose:
+                        print("    GPUs are free.")
+                    return True
+                if verbose:
+                    print(f"    Waiting for {len(pids)} GPU process(es) to finish...")
+        except Exception:
+            pass
+        time.sleep(5)
+    
+    if verbose:
+        print("    Warning: Timeout waiting for GPUs to be free")
+    return False
+
+
+def kill_process_tree(pid: int):
+    """Kill a process and all its children."""
+    try:
+        # Kill the entire process group
+        os.killpg(os.getpgid(pid), signal.SIGTERM)
+        time.sleep(3)
+        # Force kill if still running
+        try:
+            os.killpg(os.getpgid(pid), signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    except (ProcessLookupError, PermissionError, OSError):
+        pass
 
 # =============================================================================
 # Experiment Configuration
@@ -309,6 +406,12 @@ class ExperimentRunner:
         
         print(f"Command: {' '.join(cmd)}")
         
+        # Ensure GPUs are clean before starting
+        print("  Ensuring GPUs are clean...")
+        cleanup_gpu_processes(verbose=False)
+        if not wait_for_gpus_free(timeout=30, verbose=True):
+            print("  Warning: Starting experiment with potentially busy GPUs")
+        
         # Create experiment-specific output directory
         exp_dir = self.run_dir / experiment_name / f"run_{run_id}"
         exp_dir.mkdir(parents=True, exist_ok=True)
@@ -319,32 +422,48 @@ class ExperimentRunner:
         with open(exp_dir / "config.json", "w") as f:
             json.dump(config_dict, f, indent=2)
         
-        # Run experiment
+        # Run experiment using Popen for better process control
         log_file = exp_dir / "output.log"
         start_time = time.time()
+        process = None
         
         try:
             with open(log_file, "w") as f:
-                result = subprocess.run(
+                # Create new process group so we can kill all children
+                process = subprocess.Popen(
                     cmd,
                     stdout=f,
                     stderr=subprocess.STDOUT,
-                    timeout=7200,  # 2 hour timeout
+                    preexec_fn=os.setsid,  # Create new process group
                 )
+                
+                # Wait for completion with timeout
+                try:
+                    return_code = process.wait(timeout=7200)  # 2 hour timeout
+                    success = return_code == 0
+                    error_message = None if success else f"Return code: {return_code}"
+                except subprocess.TimeoutExpired:
+                    success = False
+                    error_message = "Experiment timed out after 2 hours"
+                    # Kill the entire process group
+                    print("  Timeout! Killing process tree...")
+                    kill_process_tree(process.pid)
             
-            success = result.returncode == 0
-            error_message = None if success else f"Return code: {result.returncode}"
-            
-        except subprocess.TimeoutExpired:
-            success = False
-            error_message = "Experiment timed out after 2 hours"
         except Exception as e:
             success = False
             error_message = str(e)
+            if process and process.poll() is None:
+                print(f"  Exception! Killing process tree: {e}")
+                kill_process_tree(process.pid)
         finally:
             # Clean up modified script
             if modified_script.exists():
                 modified_script.unlink()
+            
+            # Clean up any orphaned GPU processes
+            print("  Cleaning up GPU processes...")
+            cleanup_gpu_processes(verbose=True)
+            wait_for_gpus_free(timeout=30, verbose=True)
         
         elapsed_time = time.time() - start_time
         

@@ -13,6 +13,8 @@ with open(sys.argv[0]) as f:
 import uuid
 import glob
 import time
+import signal
+import atexit
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -611,22 +613,47 @@ class Hyperparameters:
 args = Hyperparameters()
 aux_head_layers = [int(x.strip()) for x in args.aux_head_layers.split(',')] if args.aux_head_layers else []
 
-# Set seed for reproducibility
-seed = os.environ.get('SEED', args.seed)
-seed = int(seed) if seed else args.seed
-set_seed(seed)
-
 # Collect environment metadata
 git_commit = get_git_commit()
 
 # set up DDP (distributed data parallel). torchrun sets this env variable
 assert torch.cuda.is_available()
-dist.init_process_group(backend='nccl')
+
+# CRITICAL: Set the CUDA device BEFORE any CUDA operations (including set_seed)
+# This prevents all ranks from initializing on GPU 0 first
 ddp_rank = int(os.environ['RANK'])
 ddp_local_rank = int(os.environ['LOCAL_RANK'])
 ddp_world_size = int(os.environ['WORLD_SIZE'])
 device = f'cuda:{ddp_local_rank}'
 torch.cuda.set_device(device)
+
+# Now it's safe to set seed (which calls torch.cuda.manual_seed_all)
+seed = os.environ.get('SEED', args.seed)
+seed = int(seed) if seed else args.seed
+set_seed(seed)
+
+# Initialize process group AFTER device is set
+dist.init_process_group(backend='nccl')
+
+# Register cleanup handlers to ensure proper shutdown
+def cleanup_distributed():
+    """Cleanup function to destroy process group on exit."""
+    try:
+        if dist.is_initialized():
+            dist.destroy_process_group()
+    except Exception:
+        pass
+
+atexit.register(cleanup_distributed)
+
+def signal_handler(signum, frame):
+    """Handle termination signals gracefully."""
+    cleanup_distributed()
+    sys.exit(1)
+
+signal.signal(signal.SIGTERM, signal_handler)
+signal.signal(signal.SIGINT, signal_handler)
+
 print(f"using device: {device}")
 master_process = (ddp_rank == 0) # this process will do logging, checkpointing etc.
 
@@ -823,3 +850,8 @@ for step in range(args.num_iterations + 1):
 
 if master_process:
     print(f"peak memory consumption: {torch.cuda.max_memory_allocated() // 1024 // 1024} MiB")
+
+# Clean up distributed training resources properly
+# This is critical to avoid leaving GPU processes hanging
+dist.barrier()  # Wait for all processes to finish
+dist.destroy_process_group()
