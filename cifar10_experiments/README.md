@@ -1,12 +1,10 @@
 # Whitening Layer Experiment Framework
 
-This framework allows you to systematically test modifications to the whitening layer
-in the CIFAR-10 airbench94 speedrun code.
+This framework allows you to systematically test modifications to the whitening layer in the CIFAR-10 airbench94 speedrun code.
 
 ## Hypothesis
 
-**Q: The whitening layer's architecture (kernel size, width, and trainability) can be 
-modified to achieve faster convergence to 94% accuracy.**
+**Q: The whitening layer's architecture (kernel size, width, and trainability) can be modified to achieve faster convergence to 94% accuracy**
 
 ### Sub-hypotheses:
 - **Q1**: Kernel size affects convergence (test 1×1, 2×2, 3×3, 4×4)
@@ -39,15 +37,15 @@ python run_airbench.py --list
 ### 3. Run experiments
 
 ```bash
-# Run all experiments (takes ~2 hours on A100)
+# Run all experiments (takes ~1 hour on A100)
 python run_airbench.py
 
 # Or run by phase:
-python run_airbench.py --phase baseline   # ~7 min
-python run_airbench.py --phase Q1         # ~7 min
-python run_airbench.py --phase Q2         # ~3 min
-python run_airbench.py --phase Q3         # ~7 min
-python run_airbench.py --phase Q4         # ~7 min
+python run_airbench.py --phase baseline
+python run_airbench.py --phase Q1
+python run_airbench.py --phase Q2
+python run_airbench.py --phase Q3
+python run_airbench.py --phase Q4
 
 # Or run a specific experiment:
 python run_airbench.py --experiment Q1_kernel_3x3
