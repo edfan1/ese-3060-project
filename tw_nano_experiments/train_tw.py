@@ -572,8 +572,8 @@ def parse_args():
     parser = argparse.ArgumentParser(description='NanoGPT Training with Token Importance Weighting')
     
     # Data hyperparams
-    parser.add_argument('--input_bin', type=str, default='data/fineweb10B/fineweb_train_*.bin')
-    parser.add_argument('--input_val_bin', type=str, default='data/fineweb10B/fineweb_val_*.bin')
+    parser.add_argument('--input_bin', type=str, default='../fineweb10B/fineweb_train_*.bin')
+    parser.add_argument('--input_val_bin', type=str, default='../fineweb10B/fineweb_val_*.bin')
     
     # Optimization hyperparams
     parser.add_argument('--batch_size', type=int, default=8*64)
