@@ -28,11 +28,199 @@ import json
 import argparse
 import subprocess
 import time
+import shutil
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Optional, Any
 import hashlib
+
+
+# =============================================================================
+# System Information Collection
+# =============================================================================
+
+def get_gpu_info() -> Dict[str, Any]:
+    """Get GPU type and count using nvidia-smi."""
+    gpu_info = {
+        "gpu_count": 0,
+        "gpu_type": None,
+        "gpu_memory_mb": None,
+        "driver_version": None,
+        "cuda_version": None,
+        "gpus": [],
+    }
+    
+    if not shutil.which("nvidia-smi"):
+        return gpu_info
+    
+    try:
+        # Get GPU count and names
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=index,name,memory.total,driver_version", 
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=10
+        )
+        if result.returncode == 0:
+            lines = result.stdout.strip().split('\n')
+            gpu_info["gpu_count"] = len(lines)
+            for line in lines:
+                parts = [p.strip() for p in line.split(',')]
+                if len(parts) >= 4:
+                    gpu_info["gpus"].append({
+                        "index": int(parts[0]),
+                        "name": parts[1],
+                        "memory_mb": int(float(parts[2])),
+                    })
+                    if gpu_info["gpu_type"] is None:
+                        gpu_info["gpu_type"] = parts[1]
+                        gpu_info["gpu_memory_mb"] = int(float(parts[2]))
+                        gpu_info["driver_version"] = parts[3]
+        
+        # Get CUDA version
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=driver_version", "--format=csv,noheader"],
+            capture_output=True, text=True, timeout=10
+        )
+        
+        # Try to get CUDA version from nvcc
+        nvcc_path = shutil.which("nvcc")
+        if nvcc_path:
+            result = subprocess.run(
+                ["nvcc", "--version"],
+                capture_output=True, text=True, timeout=10
+            )
+            if result.returncode == 0:
+                for line in result.stdout.split('\n'):
+                    if 'release' in line.lower():
+                        # Extract version like "release 12.1" 
+                        import re
+                        match = re.search(r'release\s+([\d.]+)', line, re.IGNORECASE)
+                        if match:
+                            gpu_info["cuda_version"] = match.group(1)
+                            break
+                            
+    except (subprocess.TimeoutExpired, Exception) as e:
+        gpu_info["error"] = str(e)
+    
+    return gpu_info
+
+
+def get_runpod_info() -> Dict[str, Any]:
+    """Get RunPod instance information from environment variables."""
+    runpod_info = {
+        "is_runpod": False,
+        "pod_id": None,
+        "instance_type": None,
+        "gpu_type": None,
+        "gpu_count": None,
+        "datacenter": None,
+    }
+    
+    # Check for RunPod-specific environment variables
+    runpod_env_vars = {
+        "RUNPOD_POD_ID": "pod_id",
+        "RUNPOD_GPU_TYPE": "gpu_type",
+        "RUNPOD_GPU_COUNT": "gpu_count",
+        "RUNPOD_DC_ID": "datacenter",
+        "RUNPOD_POD_HOSTNAME": "hostname",
+        "RUNPOD_INSTANCE_TYPE": "instance_type",
+        "RUNPOD_CPU_COUNT": "cpu_count",
+        "RUNPOD_MEM_GB": "memory_gb",
+    }
+    
+    for env_var, key in runpod_env_vars.items():
+        value = os.environ.get(env_var)
+        if value:
+            runpod_info["is_runpod"] = True
+            runpod_info[key] = value
+    
+    # Also check for common cloud provider hints
+    if not runpod_info["is_runpod"]:
+        # Check for other cloud indicators
+        cloud_env_vars = [
+            "RUNPOD_API_KEY", "RUNPOD_AI_API_KEY", 
+            "VAST_CONTAINERLABEL", "LAMBDA_LABS_API_KEY"
+        ]
+        for var in cloud_env_vars:
+            if os.environ.get(var):
+                runpod_info["cloud_provider_hint"] = var.split('_')[0].lower()
+                break
+    
+    return runpod_info
+
+
+def get_git_info(repo_path: str = ".") -> Dict[str, Any]:
+    """Get git commit hash and other repository information."""
+    git_info = {
+        "commit_hash": None,
+        "commit_hash_short": None,
+        "branch": None,
+        "is_dirty": None,
+        "commit_date": None,
+        "commit_message": None,
+    }
+    
+    if not shutil.which("git"):
+        return git_info
+    
+    try:
+        # Get full commit hash
+        result = subprocess.run(
+            ["git", "-C", repo_path, "rev-parse", "HEAD"],
+            capture_output=True, text=True, timeout=10
+        )
+        if result.returncode == 0:
+            git_info["commit_hash"] = result.stdout.strip()
+            git_info["commit_hash_short"] = result.stdout.strip()[:8]
+        
+        # Get branch name
+        result = subprocess.run(
+            ["git", "-C", repo_path, "rev-parse", "--abbrev-ref", "HEAD"],
+            capture_output=True, text=True, timeout=10
+        )
+        if result.returncode == 0:
+            git_info["branch"] = result.stdout.strip()
+        
+        # Check if working directory is dirty
+        result = subprocess.run(
+            ["git", "-C", repo_path, "status", "--porcelain"],
+            capture_output=True, text=True, timeout=10
+        )
+        if result.returncode == 0:
+            git_info["is_dirty"] = len(result.stdout.strip()) > 0
+        
+        # Get commit date
+        result = subprocess.run(
+            ["git", "-C", repo_path, "log", "-1", "--format=%ci"],
+            capture_output=True, text=True, timeout=10
+        )
+        if result.returncode == 0:
+            git_info["commit_date"] = result.stdout.strip()
+        
+        # Get commit message (first line)
+        result = subprocess.run(
+            ["git", "-C", repo_path, "log", "-1", "--format=%s"],
+            capture_output=True, text=True, timeout=10
+        )
+        if result.returncode == 0:
+            git_info["commit_message"] = result.stdout.strip()[:100]  # Truncate long messages
+            
+    except (subprocess.TimeoutExpired, Exception) as e:
+        git_info["error"] = str(e)
+    
+    return git_info
+
+
+def get_system_info() -> Dict[str, Any]:
+    """Collect all system information for experiment logging."""
+    return {
+        "gpu": get_gpu_info(),
+        "runpod": get_runpod_info(),
+        "git": get_git_info(),
+        "hostname": os.environ.get("HOSTNAME", os.uname().nodename if hasattr(os, 'uname') else None),
+        "collected_at": datetime.now().isoformat(),
+    }
 
 
 # =============================================================================
@@ -444,12 +632,20 @@ class AblationRunner:
         self.gpus = gpus
         self.dry_run = dry_run
         
+        # Collect system information once at startup
+        self.system_info = get_system_info()
+        
         # Create results directory
         self.results_dir.mkdir(parents=True, exist_ok=True)
         
         # Track experiment status
         self.status_file = self.results_dir / "experiment_status.json"
         self.status = self._load_status()
+        
+        # Save system info to status if first run
+        if "system_info" not in self.status:
+            self.status["system_info"] = self.system_info
+            self._save_status()
     
     def _load_status(self) -> Dict[str, Any]:
         """Load experiment status from file."""
@@ -462,6 +658,18 @@ class AblationRunner:
         """Save experiment status to file."""
         with open(self.status_file, 'w') as f:
             json.dump(self.status, f, indent=2)
+    
+    def _format_elapsed_time(self, seconds: float) -> str:
+        """Format elapsed seconds as human-readable string."""
+        if seconds < 60:
+            return f"{seconds:.1f}s"
+        elif seconds < 3600:
+            minutes = seconds / 60
+            return f"{minutes:.1f}m ({seconds:.0f}s)"
+        else:
+            hours = seconds / 3600
+            minutes = (seconds % 3600) / 60
+            return f"{hours:.1f}h ({int(hours)}h {int(minutes)}m)"
     
     def _get_experiment_dir(self, config: ExperimentConfig) -> Path:
         """Get the directory for storing experiment results."""
@@ -499,6 +707,11 @@ class AblationRunner:
         print(f"Description: {config.description}")
         print(f"Phase: {config.phase}, Stage: {config.stage}")
         print(f"Iterations: {config.num_iterations}")
+        print(f"GPU: {self.system_info['gpu']['gpu_type']} x{self.system_info['gpu']['gpu_count']}")
+        if self.system_info['runpod']['is_runpod']:
+            print(f"RunPod: {self.system_info['runpod'].get('instance_type', self.system_info['runpod'].get('pod_id', 'N/A'))}")
+        print(f"Git: {self.system_info['git']['commit_hash_short'] or 'N/A'}" + 
+              (" (dirty)" if self.system_info['git']['is_dirty'] else ""))
         print(f"Command: {' '.join(cmd)}")
         print(f"{'='*60}")
         
@@ -512,6 +725,17 @@ class AblationRunner:
             "status": "running",
             "started_at": datetime.now().isoformat(),
             "config": asdict(config),
+            "system_info": {
+                "gpu_type": self.system_info["gpu"]["gpu_type"],
+                "gpu_count": self.system_info["gpu"]["gpu_count"],
+                "gpu_memory_mb": self.system_info["gpu"]["gpu_memory_mb"],
+                "runpod": self.system_info["runpod"] if self.system_info["runpod"]["is_runpod"] else None,
+                "git_commit": self.system_info["git"]["commit_hash"],
+                "git_commit_short": self.system_info["git"]["commit_hash_short"],
+                "git_branch": self.system_info["git"]["branch"],
+                "git_dirty": self.system_info["git"]["is_dirty"],
+                "hostname": self.system_info["hostname"],
+            },
         }
         self._save_status()
         
@@ -521,9 +745,21 @@ class AblationRunner:
         
         try:
             with open(log_file, 'w') as log_f:
-                # Write command to log
+                # Write command and system info to log
                 log_f.write(f"Command: {' '.join(cmd)}\n")
                 log_f.write(f"Started: {datetime.now().isoformat()}\n")
+                log_f.write(f"\n--- System Information ---\n")
+                log_f.write(f"GPU Type: {self.system_info['gpu']['gpu_type']}\n")
+                log_f.write(f"GPU Count: {self.system_info['gpu']['gpu_count']}\n")
+                log_f.write(f"GPU Memory: {self.system_info['gpu']['gpu_memory_mb']} MB\n")
+                if self.system_info['runpod']['is_runpod']:
+                    log_f.write(f"RunPod Instance: {self.system_info['runpod'].get('instance_type', 'N/A')}\n")
+                    log_f.write(f"RunPod Pod ID: {self.system_info['runpod'].get('pod_id', 'N/A')}\n")
+                log_f.write(f"Git Commit: {self.system_info['git']['commit_hash_short']}")
+                if self.system_info['git']['is_dirty']:
+                    log_f.write(" (dirty)")
+                log_f.write(f"\nGit Branch: {self.system_info['git']['branch']}\n")
+                log_f.write(f"Hostname: {self.system_info['hostname']}\n")
                 log_f.write("="*60 + "\n\n")
                 log_f.flush()
                 
@@ -547,18 +783,22 @@ class AblationRunner:
                 elapsed_time = time.time() - start_time
                 
                 if process.returncode == 0:
+                    elapsed_formatted = self._format_elapsed_time(elapsed_time)
                     self.status["experiments"][run_id].update({
                         "status": "completed",
                         "completed_at": datetime.now().isoformat(),
                         "elapsed_seconds": elapsed_time,
+                        "elapsed_formatted": elapsed_formatted,
                     })
-                    print(f"\n  [SUCCESS] Completed in {elapsed_time:.1f}s")
+                    print(f"\n  [SUCCESS] Completed in {elapsed_formatted}")
                 else:
+                    elapsed_formatted = self._format_elapsed_time(elapsed_time)
                     self.status["experiments"][run_id].update({
                         "status": "failed",
                         "failed_at": datetime.now().isoformat(),
                         "return_code": process.returncode,
                         "elapsed_seconds": elapsed_time,
+                        "elapsed_formatted": elapsed_formatted,
                     })
                     print(f"\n  [FAILED] Return code: {process.returncode}")
                     return False
@@ -585,7 +825,11 @@ class AblationRunner:
         print(f"\n{'#'*60}")
         print(f"# Running {total} experiments")
         print(f"# Results directory: {self.results_dir}")
-        print(f"# GPUs: {self.gpus}")
+        print(f"# GPUs: {self.gpus} x {self.system_info['gpu']['gpu_type'] or 'Unknown'}")
+        if self.system_info['runpod']['is_runpod']:
+            print(f"# RunPod: {self.system_info['runpod'].get('instance_type', self.system_info['runpod'].get('pod_id', 'N/A'))}")
+        print(f"# Git: {self.system_info['git']['commit_hash_short'] or 'N/A'}" +
+              (f" on {self.system_info['git']['branch']}" if self.system_info['git']['branch'] else ""))
         print(f"{'#'*60}")
         
         for i, config in enumerate(experiments, 1):
