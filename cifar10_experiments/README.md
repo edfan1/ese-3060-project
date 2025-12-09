@@ -1,5 +1,3 @@
-### CLAUDE GENERATED RUN RECOMMENDATION
-
 # Whitening Layer Experiment Framework
 
 This framework allows you to systematically test modifications to the whitening layer
@@ -22,7 +20,7 @@ modified to achieve faster convergence to 94% accuracy.**
 |------|-------------|
 | `airbench_configurable.py` | Modified airbench94 with configurable whitening parameters |
 | `run_airbench.py` | Defines and runs all experiments |
-| `analyze_results.py` | Analyzes results, computes statistics, generates plots |
+| `analyze_airbench.py` | Analyzes results, computes statistics, generates plots |
 
 ## Quick Start
 
@@ -58,7 +56,7 @@ python run_airbench.py --experiment Q1_kernel_3x3
 ### 4. Analyze results
 
 ```bash
-python analyze_results.py
+python analyze_airbench.py
 ```
 
 This generates:
@@ -149,22 +147,3 @@ RUNS_BASELINE = 100      # Baseline runs
 RUNS_ABLATION = 50       # Ablation runs
 RUNS_FINAL = 100         # Final validation runs
 ```
-
-## Tips for Your Report
-
-1. **Always compare to baseline** - Report Δ accuracy and Δ time
-2. **Report p-values** - Use Welch's t-test for significance
-3. **Show confidence intervals** - 95% CI = mean ± 1.96 × SEM
-4. **Include training curves** - Show how modifications affect learning dynamics
-5. **Discuss trade-offs** - Some changes may improve accuracy but slow training
-
-## Example Results Table
-
-| Experiment | Accuracy | Time (s) | Δ Acc | p-value |
-|------------|----------|----------|-------|---------|
-| baseline | 0.9401 ± 0.0021 | 3.83 ± 0.05 | --- | --- |
-| Q1_kernel_3x3 | 0.9412 ± 0.0019 | 3.91 ± 0.06 | +0.0011 | 0.023* |
-| Q2_width_1 | 0.9389 ± 0.0024 | 3.71 ± 0.04 | -0.0012 | 0.041* |
-| Q3_eps_1e-3 | 0.9405 ± 0.0020 | 3.84 ± 0.05 | +0.0004 | 0.312 |
-
-*Significance: * p<0.05, ** p<0.01, *** p<0.001*
