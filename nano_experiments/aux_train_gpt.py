@@ -458,8 +458,8 @@ class DistributedDataLoader:
 class Hyperparameters:
     # data hyperparams
     # use parent dir so that we can leave cached_finweb10B in main dir
-    input_bin : str = '../data/fineweb10B/fineweb_train_*.bin' # input .bin to train on
-    input_val_bin : str = '../data/fineweb10B/fineweb_val_*.bin' # input .bin to eval validation loss on
+    input_bin : str = '../fineweb10B/fineweb_train_*.bin' # input .bin to train on
+    input_val_bin : str = '../fineweb10B/fineweb_val_*.bin' # input .bin to eval validation loss on
     # optimization hyperparams
     batch_size : int = 8*64 # batch size, in sequences, across all devices
     device_batch_size : int = 64 # batch size, in sequences, per device
@@ -481,8 +481,8 @@ class Hyperparameters:
 def parse_args():
     parser = argparse.ArgumentParser(description='Train GPT with optional auxiliary heads')
     # Data hyperparams
-    parser.add_argument('--input_bin', type=str, default='../data/fineweb10B/fineweb_train_*.bin')
-    parser.add_argument('--input_val_bin', type=str, default='../data/fineweb10B/fineweb_val_*.bin')
+    parser.add_argument('--input_bin', type=str, default='../fineweb10B/fineweb_train_*.bin')
+    parser.add_argument('--input_val_bin', type=str, default='../fineweb10B/fineweb_val_*.bin')
     # Optimization hyperparams
     parser.add_argument('--batch_size', type=int, default=8*64)
     parser.add_argument('--device_batch_size', type=int, default=64)
