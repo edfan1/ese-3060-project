@@ -6,17 +6,27 @@ This script analyzes results from the ablation experiments, computing
 statistics, performing hypothesis tests, and generating visualizations.
 
 Usage:
-    # Analyze all results
-    python analyze_tw.py --results-dir ablation_results
+    # Basic analysis of all runs
+    python analyze_tw.py --results-dir ablation_results --output-dir analysis_output
 
-    # Analyze specific phase
-    python analyze_tw.py --results-dir ablation_results --phase 2
+    # Only analyze a phase (e.g., screening)
+    python analyze_tw.py --results-dir ablation_results --phase 1
 
-    # Generate comparison report
-    python analyze_tw.py --results-dir ablation_results --compare-to-baseline
+    # Compare all configs to baseline at a fixed step (truncated baseline)
+    python analyze_tw.py --results-dir ablation_results --compare-at-step 500
 
-    # Export results to CSV
+    # Export raw tables (runs, curves) to CSV
     python analyze_tw.py --results-dir ablation_results --export-csv
+    
+Outputs (under --output-dir):
+    - training_curves_val.png / training_curves_train.png (truncated to 500 steps)
+    - val_loss_step_500.png (bar + error at step cutoff)
+    - val_loss_vs_time_step_500.png (speed/quality scatter)
+    - step_latency_boxplot.png (per-step latency by config)
+    - val_train_gap.png (val - train gap over first 500 steps)
+    - final_loss_comparison.png (boxplot)
+    - statistical_comparisons.csv (baseline vs treatments)
+    - optional CSV exports when --export-csv is set
 """
 
 import os
@@ -771,7 +781,8 @@ def plot_training_curves(
     groups: Dict[str, ExperimentGroup],
     output_path: Path,
     title: str = "Training Curves",
-    metric: str = "val_loss"
+    metric: str = "val_loss",
+    max_steps: Optional[int] = 500,
 ):
     """Plot training curves for multiple experiment groups."""
     setup_plotting_style()
@@ -786,6 +797,8 @@ def plot_training_curves(
             for run in group.runs:
                 all_steps.update(run.val_steps)
             all_steps = sorted(all_steps)
+            if max_steps is not None:
+                all_steps = [s for s in all_steps if s <= max_steps]
             
             if not all_steps:
                 continue
@@ -815,6 +828,8 @@ def plot_training_curves(
             for run in group.runs:
                 all_steps.update(run.steps)
             all_steps = sorted(all_steps)
+            if max_steps is not None:
+                all_steps = [s for s in all_steps if s <= max_steps]
             
             if not all_steps:
                 continue
@@ -842,6 +857,176 @@ def plot_training_curves(
     ax.legend(loc='upper right', framealpha=0.9)
     ax.grid(True, alpha=0.3)
     
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=150, bbox_inches='tight')
+    plt.close()
+    print(f"Saved: {output_path}")
+
+
+def plot_val_loss_at_step(
+    groups: Dict[str, ExperimentGroup],
+    step: int,
+    output_path: Path,
+    baseline_name: Optional[str] = None,
+):
+    """Bar + error bars of validation loss at a fixed step (e.g., 500)."""
+    setup_plotting_style()
+    fig, ax = plt.subplots(figsize=(12, 7))
+    names, means, stds = [], [], []
+    colors = []
+    for name, group in groups.items():
+        vals = group.get_val_losses_at_step(step)
+        if len(vals) == 0:
+            continue
+        names.append(name)
+        means.append(np.mean(vals))
+        stds.append(np.std(vals, ddof=1) if len(vals) > 1 else 0)
+        colors.append('lightblue' if name == baseline_name else 'lightgreen')
+    if not names:
+        print(f"No validation data at step {step} to plot.")
+        return
+    ax.bar(names, means, yerr=stds, color=colors, capsize=5)
+    ax.set_ylabel('Validation Loss')
+    ax.set_title(f'Validation Loss at Step {step}')
+    ax.tick_params(axis='x', rotation=45)
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=150, bbox_inches='tight')
+    plt.close()
+    print(f"Saved: {output_path}")
+
+
+def plot_loss_vs_time(
+    groups: Dict[str, ExperimentGroup],
+    step: int,
+    output_path: Path,
+):
+    """Scatter val loss vs train time at a given step to show speed/quality tradeoff."""
+    setup_plotting_style()
+    fig, ax = plt.subplots(figsize=(12, 7))
+    for name, group in groups.items():
+        vals = group.get_val_losses_at_step(step)
+        times = group.get_train_times_at_step(step)
+        if len(vals) == 0 or len(times) == 0:
+            continue
+        ax.scatter(times / 1000.0, vals, label=name, alpha=0.8)
+    if not ax.collections:
+        print(f"No data to plot loss-vs-time at step {step}.")
+        return
+    ax.set_xlabel('Train Time at Step (s)')
+    ax.set_ylabel('Validation Loss')
+    ax.set_title(f'Validation Loss vs Time at Step {step}')
+    ax.legend()
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=150, bbox_inches='tight')
+    plt.close()
+    print(f"Saved: {output_path}")
+
+
+def plot_step_latency(
+    groups: Dict[str, ExperimentGroup],
+    output_path: Path,
+):
+    """Boxplot of per-step latency across runs."""
+    setup_plotting_style()
+    fig, ax = plt.subplots(figsize=(12, 7))
+    data, labels = [], []
+    for name, group in groups.items():
+        lat = group.get_step_avg_times()
+        if len(lat) == 0:
+            continue
+        data.append(lat)
+        labels.append(name)
+    if not data:
+        print("No step latency data to plot.")
+        return
+    bp = ax.boxplot(data, labels=labels, patch_artist=True)
+    for patch in bp['boxes']:
+        patch.set_facecolor('lightgray')
+    ax.set_ylabel('Step Avg (ms)')
+    ax.set_title('Per-Step Latency by Configuration')
+    ax.tick_params(axis='x', rotation=45)
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=150, bbox_inches='tight')
+    plt.close()
+    print(f"Saved: {output_path}")
+
+
+def plot_val_loss_boxplot(
+    groups: Dict[str, ExperimentGroup],
+    step: int,
+    output_path: Path,
+    baseline_name: Optional[str] = None,
+):
+    """Boxplot of validation losses at a fixed step across configs."""
+    setup_plotting_style()
+    fig, ax = plt.subplots(figsize=(12, 7))
+    data, labels, colors = [], [], []
+    for name, group in groups.items():
+        vals = group.get_val_losses_at_step(step)
+        if len(vals) == 0:
+            continue
+        data.append(vals)
+        labels.append(f"{name}\n(n={len(vals)})")
+        colors.append('lightblue' if name == baseline_name else 'lightgreen')
+    if not data:
+        print(f"No validation data at step {step} to plot.")
+        return
+    bp = ax.boxplot(data, labels=labels, patch_artist=True)
+    for patch, color in zip(bp['boxes'], colors):
+        patch.set_facecolor(color)
+    for whisker in bp['whiskers']:
+        whisker.set_color('gray')
+    for cap in bp['caps']:
+        cap.set_color('gray')
+    for median in bp['medians']:
+        median.set_color('black')
+    ax.set_ylabel('Validation Loss')
+    ax.set_title(f'Validation Loss at Step {step}')
+    ax.tick_params(axis='x', rotation=45)
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=150, bbox_inches='tight')
+    plt.close()
+    print(f"Saved: {output_path}")
+
+
+def plot_val_train_gap(
+    groups: Dict[str, ExperimentGroup],
+    output_path: Path,
+    max_steps: int = 500,
+):
+    """Plot (val - train) loss over steps to watch for overfitting in early horizon."""
+    setup_plotting_style()
+    fig, ax = plt.subplots(figsize=(14, 8))
+    colors = plt.cm.tab10(np.linspace(0, 1, len(groups)))
+    for (name, group), color in zip(groups.items(), colors):
+        all_steps = set()
+        for run in group.runs:
+            all_steps.update([s for s in run.val_steps if s <= max_steps])
+        all_steps = sorted(all_steps)
+        if not all_steps:
+            continue
+        gaps = []
+        for run in group.runs:
+            if not run.val_steps or not run.val_losses or not run.steps or not run.train_losses:
+                continue
+            # interpolate train loss to val steps for alignment
+            train_interp = np.interp(all_steps, run.steps, run.train_losses)
+            val_interp = np.interp(all_steps, run.val_steps, run.val_losses)
+            gaps.append(val_interp - train_interp)
+        if not gaps:
+            continue
+        gaps = np.array(gaps)
+        mean_gap = np.mean(gaps, axis=0)
+        std_gap = np.std(gaps, axis=0)
+        ax.plot(all_steps, mean_gap, label=name, color=color, linewidth=2)
+        ax.fill_between(all_steps, mean_gap - std_gap, mean_gap + std_gap, color=color, alpha=0.2)
+    if not ax.lines:
+        print("No val/train gap data to plot.")
+        return
+    ax.set_xlabel('Step')
+    ax.set_ylabel('Val - Train Loss')
+    ax.set_title(f'Generalization Gap (<= {max_steps} steps)')
+    ax.legend(loc='upper right', framealpha=0.9)
     plt.tight_layout()
     plt.savefig(output_path, dpi=150, bbox_inches='tight')
     plt.close()
@@ -1337,14 +1522,45 @@ def generate_report(
         groups, 
         output_dir / "training_curves_val.png",
         title="Validation Loss Training Curves",
-        metric="val_loss"
+        metric="val_loss",
+        max_steps=500
     )
     
     plot_training_curves(
         groups,
         output_dir / "training_curves_train.png", 
         title="Training Loss Curves",
-        metric="train_loss"
+        metric="train_loss",
+        max_steps=500
+    )
+
+    # Early-horizon comparisons at 500 steps
+    step_cutoff = 500
+    plot_val_loss_at_step(
+        groups,
+        step=step_cutoff,
+        output_path=output_dir / f"val_loss_step_{step_cutoff}.png",
+        baseline_name=baseline_name,
+    )
+    plot_val_loss_boxplot(
+        groups,
+        step=step_cutoff,
+        output_path=output_dir / f"val_loss_boxplot_step_{step_cutoff}.png",
+        baseline_name=baseline_name,
+    )
+    plot_loss_vs_time(
+        groups,
+        step=step_cutoff,
+        output_path=output_dir / f"val_loss_vs_time_step_{step_cutoff}.png",
+    )
+    plot_step_latency(
+        groups,
+        output_path=output_dir / "step_latency_boxplot.png",
+    )
+    plot_val_train_gap(
+        groups,
+        output_path=output_dir / "val_train_gap.png",
+        max_steps=step_cutoff,
     )
     
     # Final loss comparison
